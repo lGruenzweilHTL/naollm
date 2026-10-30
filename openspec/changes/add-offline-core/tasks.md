@@ -2,36 +2,36 @@
 
 ## 1. Project setup
 
-- [ ] 1.1 Create `pyproject.toml` (hatchling, `requires-python >=3.10`, deps `pydantic>=2`, `PyYAML`, `openai>=1`, `prompt_toolkit>=3`, `rich`; dev extra `pytest`; script `naollm = naollm.main:main`) and the package skeleton from design.md; verify `pip install -e .[dev]` in `/tmp/naollm-venv` succeeds and `naollm --help` prints usage
-- [ ] 1.2 Add `tests/conftest.py` with shared fixtures (default config, fake robot) and verify `pytest` collects and passes with zero tests
+- [x] 1.1 Create `pyproject.toml` (hatchling, `requires-python >=3.10`, deps `pydantic>=2`, `PyYAML`, `openai>=1`, `prompt_toolkit>=3`, `rich`; dev extra `pytest`; script `naollm = naollm.main:main`) and the package skeleton from design.md; verify `pip install -e .[dev]` in `/tmp/naollm-venv` succeeds and `naollm --help` prints usage
+- [x] 1.2 Add `tests/conftest.py` with shared fixtures (default config, fake robot) and verify `pytest` collects and passes with zero tests
 
 ## 2. Configuration (bridge-config)
 
-- [ ] 2.1 Implement the pydantic config model for every SPEC §15 section with defaults and `extra="forbid"`; verify tests for valid example, unknown key and wrong type pass
-- [ ] 2.2 Validate `dances`/`gestures` names and targets (behavior path, `animations/...`, `anim:<name>`); verify tests for keyframe gesture and invalid name pass
-- [ ] 2.3 Implement event-mode refusal and the cloud-endpoint check; verify tests for debug logging at event, development config, local Ollama and public endpoint pass
-- [ ] 2.4 Write `config.example.yaml` matching SPEC v0.2 §15; verify a test loads it successfully
+- [x] 2.1 Implement the pydantic config model for every SPEC §15 section with defaults and `extra="forbid"`; verify tests for valid example, unknown key and wrong type pass
+- [x] 2.2 Validate `dances`/`gestures` names and targets (behavior path, `animations/...`, `anim:<name>`); verify tests for keyframe gesture and invalid name pass
+- [x] 2.3 Implement event-mode refusal and the cloud-endpoint check; verify tests for debug logging at event, development config, local Ollama and public endpoint pass
+- [x] 2.4 Write `config.example.yaml` matching SPEC v0.2 §15; verify a test loads it successfully
 
 ## 3. Robot adapter and fake robot (robot-adapter)
 
-- [ ] 3.1 Define the Motion, Speech, Audio, Events, Perception and RobotAdapter protocols plus `RobotStatus`, `RobotInfo`, `RobotEvent` types; verify a test checks the fake satisfies every protocol (`isinstance` with `runtime_checkable`)
-- [ ] 3.2 Implement the fake robot with settable simulated state, ordered action recording and event injection; verify tests for posture change, low battery, recorded speech/gesture and injected head touch pass
-- [ ] 3.3 Implement interruptible long actions in the fake (simulated duration, stop ends early, `finished`/`interrupted` result) with a time-scale option for tests; verify the stop-during-dance test passes
-- [ ] 3.4 Add dry-run printing of fake robot actions; verify the dry-run speech test passes
+- [x] 3.1 Define the Motion, Speech, Audio, Events, Perception and RobotAdapter protocols plus `RobotStatus`, `RobotInfo`, `RobotEvent` types; verify a test checks the fake satisfies every protocol (`isinstance` with `runtime_checkable`)
+- [x] 3.2 Implement the fake robot with settable simulated state, ordered action recording and event injection; verify tests for posture change, low battery, recorded speech/gesture and injected head touch pass
+- [x] 3.3 Implement interruptible long actions in the fake (simulated duration, stop ends early, `finished`/`interrupted` result) with a time-scale option for tests; verify the stop-during-dance test passes
+- [x] 3.4 Add dry-run printing of fake robot actions; verify the dry-run speech test passes
 
 ## 4. State machine, gate and event watcher (safety-gate)
 
-- [ ] 4.1 Implement the thread-safe state machine with allowed transitions, `STOPPED`/`FALLEN` from any state and operator resume; verify tests for fall from any state and resume pass
-- [ ] 4.2 Implement the argument checker for the emitted schema subset and the bilingual reason table; verify tests for unknown tool, out-of-range step (rejected, not clamped) and walking disabled pass
-- [ ] 4.3 Implement the gate pipeline (ordered checks, motion lock released in `finally`, never raises); verify tests for handler failure, concurrent motion, gesture/status while stopped pass
-- [ ] 4.4 Implement battery, thermal and displacement-budget rules; verify tests for dance at 25 %, sit at 15 %, warm/hot thermal and budget exhausted pass
-- [ ] 4.5 Implement `estop(source)` with guarded ordered steps and turn cancellation hook; verify tests for step order and a failing step not skipping the rest pass
-- [ ] 4.6 Implement the event watcher (head touches, fall, battery < 20 % / < 10 %, thermal, connection loss, 3 min idle crouch); verify the rear-head-touch-during-dance test passes with the event injected from another thread
+- [x] 4.1 Implement the thread-safe state machine with allowed transitions, `STOPPED`/`FALLEN` from any state and operator resume; verify tests for fall from any state and resume pass
+- [x] 4.2 Implement the argument checker for the emitted schema subset and the bilingual reason table; verify tests for unknown tool, out-of-range step (rejected, not clamped) and walking disabled pass
+- [x] 4.3 Implement the gate pipeline (ordered checks, motion lock released in `finally`, never raises); verify tests for handler failure, concurrent motion, gesture/status while stopped pass
+- [x] 4.4 Implement battery, thermal and displacement-budget rules; verify tests for dance at 25 %, sit at 15 %, warm/hot thermal and budget exhausted pass
+- [x] 4.5 Implement `estop(source)` with guarded ordered steps and turn cancellation hook; verify tests for step order and a failing step not skipping the rest pass
+- [x] 4.6 Implement the event watcher (head touches, fall, battery < 20 % / < 10 %, thermal, connection loss, 3 min idle crouch); verify the rear-head-touch-during-dance test passes with the event injected from another thread
 
 ## 5. LLM tools (llm-tools)
 
-- [ ] 5.1 Implement tool schemas and the registry with enums from the catalogue, availability filtering and hidden walking tools; verify tests for schema shape, walking off/on, missing behavior and keyframe gesture pass
-- [ ] 5.2 Implement handlers for `play_gesture`, `dance`, `set_posture`, `look` (fixed angle table, tracking back after 3 s), `turn`, `step`, `set_eyes` (allowed colours, revert after 5 s), `get_status`, `who_is_here`, soft `stop`; verify tests for successful gesture, reserved colour, colour revert, look left, turn right, soft stop during dance, status and dance finished pass
+- [x] 5.1 Implement tool schemas and the registry with enums from the catalogue, availability filtering and hidden walking tools; verify tests for schema shape, walking off/on, missing behavior and keyframe gesture pass
+- [x] 5.2 Implement handlers for `play_gesture`, `dance`, `set_posture`, `look` (fixed angle table, tracking back after 3 s), `turn`, `step`, `set_eyes` (allowed colours, revert after 5 s), `get_status`, `who_is_here`, soft `stop`; verify tests for successful gesture, reserved colour, colour revert, look left, turn right, soft stop during dance, status and dance finished pass
 
 ## 6. Conversation loop (conversation-loop)
 

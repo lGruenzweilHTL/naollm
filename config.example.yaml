@@ -1,0 +1,59 @@
+# Copy to config.yaml and adjust. Every key is optional except robot.url.
+robot:
+  url: tcp://192.168.8.20:9559
+  language: German            # default turn language: German | English
+llm:
+  base_url: http://localhost:11434/v1
+  api_key: ollama
+  model: gemma4:e2b
+  temperature: 0.4
+  max_tokens: 200
+  timeout_s: 20
+  max_tool_rounds: 3
+conversation:
+  history_turns: 6
+  idle_reset_s: 60
+  school_name: unserer Schule
+stt:
+  engine: faster-whisper
+  model: small
+  languages: [de, en]
+  fallback_language: de
+audio:
+  source: robot              # robot | robot_recorder_fallback
+  wake_words: ["Hallo NAO", "Hey NAO"]
+  wake_language: German      # fixed ASR language for word spotting (SPEC §11.1)
+  wake_threshold: 0.5
+  front_head_tap: true
+  operator_key: space        # only when the admin prompt line is empty
+  vad_silence_s: 0.8
+  max_utterance_s: 15
+motion:
+  walking_enabled: false
+  max_turn_deg: 90
+  max_step_cm: 30
+  max_total_displacement_m: 1.0
+  battery_motion_min_pct: 20
+  battery_dance_min_pct: 30
+  idle_crouch_s: 180
+dances:
+  macarena: showcase/dance_macarena
+  robot: showcase/dance_robot
+gestures:
+  # Built-in paths are checked against the robot in phase 0.
+  wave: animations/Stand/Gestures/Hey_1
+  bow: showcase/gesture_bow
+  nod: animations/Stand/Gestures/Yes_1
+  shake_head: animations/Stand/Gestures/No_3
+  shrug: animations/Stand/Gestures/IDontKnow_1
+  think: animations/Stand/Gestures/Thinking_1
+  celebrate: animations/Stand/Gestures/Enthusiastic_4
+  victory: anim:victory      # keyframe file animations/victory.anim.yaml (SPEC §19)
+robot_profile_dir: ~/.naollm/robots
+animations_dir: animations
+privacy:
+  face_recognition_enabled: true
+  age_game_enabled: false
+  persist_transcripts: false
+  debug_logging: false
+event_mode: true

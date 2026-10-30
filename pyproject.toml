@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "naollm"
+version = "0.1.0"
+description = "Local LLM conversation bridge for the NAO 6 robot (robotics club showcase)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5",
+    "PyYAML>=6",
+    "openai>=1.30",
+    "prompt_toolkit>=3.0.40",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+naollm = "naollm.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/naollm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
