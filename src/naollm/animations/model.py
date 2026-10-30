@@ -19,6 +19,19 @@ class AnimationError(Exception):
     pass
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Rejects duplicate keys, e.g. the same joint track twice."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise AnimationError(f"duplicate key '{key}' (line {key_node.start_mark.line + 1})")
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 class Track(BaseModel):
     model_config = ConfigDict(extra="forbid")
     times: List[float]
@@ -68,7 +81,9 @@ class Animation(BaseModel):
 def load_animation(path: str | Path) -> Animation:
     p = Path(path)
     try:
-        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+        data = yaml.load(p.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+    except AnimationError as err:
+        raise AnimationError(f"{p}: {err}") from None
     except (OSError, yaml.YAMLError) as err:
         raise AnimationError(f"{p}: cannot read: {err}") from None
     try:

@@ -43,10 +43,10 @@
 
 ## 7. Admin CLI (admin-cli)
 
-- [ ] 7.1 Implement the command parser (positional and `key=value` tool arguments, quoting for `say`, unknown commands, completion candidates); verify parser unit tests for positional, key-value, bad enum and unknown command pass
-- [ ] 7.2 Implement command handlers (`help`, `status`, `tools`, `tool`, `say`, `posture`, `wake`, `rest`, `walk`, `llm`, `reset`, `estop`, `resume` with confirmation, `listen`, `chat` with `--de`/`--en`, `quit`); verify tests for admin call logged with source `admin`, walking toggle, resume declined and admin mode without LLM pass
-- [ ] 7.3 Implement the prompt_toolkit console (status toolbar, log above prompt, `Ctrl+E`, empty-line `space`, tab completion) and the `naollm run` / `naollm admin` entry points with `--dry-run`; verify a pipe-input test for hotkey while typing and both space scenarios passes, and `naollm run --dry-run` starts and quits manually
-- [ ] 7.4 Implement two-stage `Ctrl+C`, `SIGTERM` and unhandled-exception handling with safe shutdown; verify integration tests for single Ctrl+C, double Ctrl+C, SIGTERM and the no-listening-sockets check pass
+- [x] 7.1 Implement the command parser (positional and `key=value` tool arguments, quoting for `say`, unknown commands, completion candidates); verify parser unit tests for positional, key-value, bad enum and unknown command pass
+- [x] 7.2 Implement command handlers (`help`, `status`, `tools`, `tool`, `say`, `posture`, `wake`, `rest`, `walk`, `llm`, `reset`, `estop`, `resume` with confirmation, `listen`, `chat` with `--de`/`--en`, `quit`); verify tests for admin call logged with source `admin`, walking toggle, resume declined and admin mode without LLM pass
+- [x] 7.3 Implement the prompt_toolkit console (status toolbar, log above prompt, `Ctrl+E`, empty-line `space`, tab completion) and the `naollm run` / `naollm admin` entry points with `--dry-run`; verify a pipe-input test for hotkey while typing and both space scenarios passes, and `naollm run --dry-run` starts and quits manually
+- [x] 7.4 Implement two-stage `Ctrl+C`, `SIGTERM` and unhandled-exception handling with safe shutdown; verify integration tests for single Ctrl+C, double Ctrl+C, SIGTERM and the no-listening-sockets check pass
 
 ## 8. Keyframe animations (keyframe-animations)
 
