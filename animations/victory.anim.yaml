@@ -1,0 +1,17 @@
+name: victory
+description: Both arms up, short fist pump, back to Stand.
+version: 1
+author: agent:claude
+# Set after previewing on the real robot with `naollm anim preview` (operator hands near it).
+# Until then the animation is dropped from the tool enums in event mode.
+reviewed_by: ""
+posture: Stand
+duration_s: 3.0
+uses_legs: false
+interpolation: bezier
+tracks:
+  LShoulderPitch: {times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [85, -70, -85, -70, 85]}
+  RShoulderPitch: {times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [85, -70, -85, -70, 85]}
+  LElbowRoll:     {times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [-25, -40, -70, -40, -25]}
+  RElbowRoll:     {times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [25, 40, 70, 40, 25]}
+  HeadPitch:      {times: [0.3, 1.1, 2.1, 2.9],      angles_deg: [0, -15, -15, 0]}

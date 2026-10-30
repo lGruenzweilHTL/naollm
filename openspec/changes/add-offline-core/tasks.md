@@ -50,12 +50,12 @@
 
 ## 8. Keyframe animations (keyframe-animations)
 
-- [ ] 8.1 Implement the animation file model and loader; verify tests for loading the SPEC §19.1 example and name mismatch pass
-- [ ] 8.2 Add the built-in NAO 6 joint limits and posture reference tables, and robot profile loading; verify the no-robot-profile test passes
-- [ ] 8.3 Implement the validator with all SPEC §19.3 rules and violation reports; verify tests for angle out of limits, leg joint without `uses_legs`, too fast and valid animation pass
-- [ ] 8.4 Implement the Choregraphe importer via `ast` (both key formats, radians to degrees, `uses_legs` detection, no code execution); verify tests for import timeline and export not executed pass
-- [ ] 8.5 Implement the player through the gate (balancer on/off in `finally`) and event-mode filtering of unreviewed animations; verify tests for upper-body playback, interrupted playback and unreviewed in event mode pass
-- [ ] 8.6 Add `naollm anim validate|list|import` and a reviewed sample `animations/victory.anim.yaml`; verify the validate exit-code test passes and the sample validates
+- [x] 8.1 Implement the animation file model and loader; verify tests for loading the SPEC §19.1 example and name mismatch pass
+- [x] 8.2 Add the built-in NAO 6 joint limits and posture reference tables, and robot profile loading; verify the no-robot-profile test passes
+- [x] 8.3 Implement the validator with all SPEC §19.3 rules and violation reports; verify tests for angle out of limits, leg joint without `uses_legs`, too fast and valid animation pass
+- [x] 8.4 Implement the Choregraphe importer via `ast` (both key formats, radians to degrees, `uses_legs` detection, no code execution); verify tests for import timeline and export not executed pass
+- [x] 8.5 Implement the player through the gate (balancer on/off in `finally`) and event-mode filtering of unreviewed animations; verify tests for upper-body playback, interrupted playback and unreviewed in event mode pass
+- [x] 8.6 Add `naollm anim validate|list|import` and a sample `animations/victory.anim.yaml` (left unreviewed: review needs a preview on the real robot); verify the validate exit-code test passes and the sample validates
 
 ## 9. Evaluation runner and docs
 
