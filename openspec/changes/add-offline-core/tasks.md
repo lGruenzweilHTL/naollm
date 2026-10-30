@@ -35,11 +35,11 @@
 
 ## 6. Conversation loop (conversation-loop)
 
-- [ ] 6.1 Implement the OpenAI-compatible client wrapper (streaming, tool-call delta accumulation for OpenAI and Ollama shapes, timeout); verify tests with a stub endpoint for both delta shapes pass
-- [ ] 6.2 Implement the German and English system prompts per SPEC §7.3; verify a test checks each prompt contains every required rule and the language instruction
-- [ ] 6.3 Implement the sentence splitter and the speech queue worker; verify tests for two-sentence streaming and abbreviation/number handling pass
-- [ ] 6.4 Implement the turn loop (history window, tool rounds with limit and fallback line, speak-before-act, malformed-call retry then no tools, timeout apology, cancellation); verify tests for history window, tool then answer, endless tool calls, text and gesture ordering, bad JSON twice, timeout and emergency stop during a turn pass
-- [ ] 6.5 Implement in-memory history with idle reset and event-mode log redaction; verify tests for idle reset and event-mode log pass
+- [x] 6.1 Implement the OpenAI-compatible client wrapper (streaming, tool-call delta accumulation for OpenAI and Ollama shapes, timeout); verify tests with a stub endpoint for both delta shapes pass
+- [x] 6.2 Implement the German and English system prompts per SPEC §7.3; verify a test checks each prompt contains every required rule and the language instruction
+- [x] 6.3 Implement the sentence splitter and the speech queue worker; verify tests for two-sentence streaming and abbreviation/number handling pass
+- [x] 6.4 Implement the turn loop (history window, tool rounds with limit and fallback line, speak-before-act, malformed-call retry then no tools, timeout apology, cancellation); verify tests for history window, tool then answer, endless tool calls, text and gesture ordering, bad JSON twice, timeout and emergency stop during a turn pass
+- [x] 6.5 Implement in-memory history with idle reset and event-mode log redaction; verify tests for idle reset and event-mode log pass
 
 ## 7. Admin CLI (admin-cli)
 
