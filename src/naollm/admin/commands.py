@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import shlex
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 from naollm.config import cloud_warning
 from naollm.state import State

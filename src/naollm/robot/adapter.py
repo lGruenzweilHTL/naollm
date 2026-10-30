@@ -6,9 +6,9 @@ sub-interfaces. Nothing outside `naollm.robot` talks to a transport directly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Literal, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Callable, Dict, List, Literal, Protocol, Tuple, runtime_checkable
 
 Outcome = Literal["finished", "interrupted"]
 ThermalLevel = Literal["ok", "warm", "hot"]

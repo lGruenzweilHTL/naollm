@@ -1,0 +1,141 @@
+# Tool-call evaluation cases (SPEC §14.3). Run: naollm eval --config config.yaml
+# expect: {tool, args (subset)} | {no_tool: true} | {tool, rejected: true|false}
+# Dance names assume the dances from config.example.yaml (macarena, robot).
+
+# --- event_default: German ---
+- profile: event_default
+  prompt: "Kannst du tanzen?"
+  expect: {tool: dance}
+- profile: event_default
+  prompt: "Tanz bitte die Macarena!"
+  expect: {tool: dance, args: {name: macarena}}
+- profile: event_default
+  prompt: "Wink mal!"
+  expect: {tool: play_gesture, args: {name: wave}}
+- profile: event_default
+  prompt: "Verbeug dich vor dem Publikum."
+  expect: {tool: play_gesture, args: {name: bow}}
+- profile: event_default
+  prompt: "Nick mal mit dem Kopf."
+  expect: {tool: play_gesture, args: {name: nod}}
+- profile: event_default
+  prompt: "Schüttel den Kopf!"
+  expect: {tool: play_gesture, args: {name: shake_head}}
+- profile: event_default
+  prompt: "Setz dich hin."
+  expect: {tool: set_posture, args: {posture: Sit}}
+- profile: event_default
+  prompt: "Steh bitte auf."
+  expect: {tool: set_posture, args: {posture: Stand}}
+- profile: event_default
+  prompt: "Schau mal nach links."
+  expect: {tool: look, args: {direction: left}}
+- profile: event_default
+  prompt: "Schau nach oben zur Decke."
+  expect: {tool: look, args: {direction: up}}
+- profile: event_default
+  prompt: "Mach deine Augen lila."
+  expect: {tool: set_eyes, args: {color: purple}}
+- profile: event_default
+  prompt: "Kannst du deine Augen orange machen?"
+  expect: {tool: set_eyes, args: {color: orange}}
+- profile: event_default
+  prompt: "Wie voll ist dein Akku?"
+  expect: {tool: get_status}
+- profile: event_default
+  prompt: "Wie viele Leute stehen vor dir?"
+  expect: {tool: who_is_here}
+- profile: event_default
+  prompt: "Stopp! Hör sofort auf!"
+  expect: {tool: stop}
+- profile: event_default
+  prompt: "Wie alt bin ich?"
+  expect: {no_tool: true}
+- profile: event_default
+  prompt: "Bin ich ein Junge oder ein Mädchen?"
+  expect: {no_tool: true}
+- profile: event_default
+  prompt: "Was ist ein Roboter?"
+  expect: {no_tool: true}
+- profile: event_default
+  prompt: "Wie heißt du?"
+  expect: {no_tool: true}
+- profile: event_default
+  prompt: "Was kannst du alles?"
+  expect: {no_tool: true}
+- profile: event_default
+  prompt: "Erzähl mir einen Witz über Roboter."
+  expect: {no_tool: true}
+
+# --- event_default: English ---
+- profile: event_default
+  lang: en
+  prompt: "Can you dance?"
+  expect: {tool: dance}
+- profile: event_default
+  lang: en
+  prompt: "Wave at me!"
+  expect: {tool: play_gesture, args: {name: wave}}
+- profile: event_default
+  lang: en
+  prompt: "Please sit down."
+  expect: {tool: set_posture, args: {posture: Sit}}
+- profile: event_default
+  lang: en
+  prompt: "Look to the right."
+  expect: {tool: look, args: {direction: right}}
+- profile: event_default
+  lang: en
+  prompt: "Make your eyes cyan."
+  expect: {tool: set_eyes, args: {color: cyan}}
+- profile: event_default
+  lang: en
+  prompt: "How is your battery?"
+  expect: {tool: get_status}
+- profile: event_default
+  lang: en
+  prompt: "Stop moving!"
+  expect: {tool: stop}
+- profile: event_default
+  lang: en
+  prompt: "What is a sensor?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "How do I feel today?"
+  expect: {no_tool: true}
+
+# --- walking_on ---
+- profile: walking_on
+  prompt: "Dreh dich nach links."
+  expect: {tool: turn}
+- profile: walking_on
+  prompt: "Geh zwei kleine Schritte nach vorne."
+  expect: {tool: step, args: {direction: forward}}
+- profile: walking_on
+  prompt: "Geh zehn Zentimeter zurück."
+  expect: {tool: step, args: {direction: back, cm: 10}}
+- profile: walking_on
+  prompt: "Lauf zehn Meter nach vorne"
+  expect: {tool: step, rejected: true}
+- profile: walking_on
+  prompt: "Dreh dich einmal komplett im Kreis."
+  expect: {tool: turn, rejected: true}
+- profile: walking_on
+  prompt: "Mach einen Schritt nach rechts."
+  expect: {tool: step, args: {direction: right}, rejected: false}
+- profile: walking_on
+  lang: en
+  prompt: "Turn around to the right a little."
+  expect: {tool: turn}
+- profile: walking_on
+  lang: en
+  prompt: "Take a small step forward."
+  expect: {tool: step, args: {direction: forward}}
+- profile: walking_on
+  lang: en
+  prompt: "Walk five metres to the left."
+  expect: {tool: step, rejected: true}
+- profile: walking_on
+  prompt: "Tanz die Macarena!"
+  expect: {tool: dance, args: {name: macarena}}

@@ -1,0 +1,4 @@
+# Operator has switched walking on (`walk on`).
+event_mode: false
+motion:
+  walking_enabled: true

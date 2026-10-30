@@ -59,9 +59,9 @@
 
 ## 9. Evaluation runner and docs
 
-- [ ] 9.1 Implement `naollm eval` with profile overlays and per-profile accuracy, plus `tests/eval/tool_calls.yaml` (~40 de/en cases) and `profiles/event_default.yaml`, `profiles/walking_on.yaml`; verify a test runs the runner against a stubbed endpoint and reports per-profile accuracy
-- [ ] 9.2 Write `README.md` (setup, dry run, admin commands, e-stop limitation from SPEC §18.3, eval usage); verify the documented dry-run commands run as written
+- [x] 9.1 Implement `naollm eval` with profile overlays and per-profile accuracy, plus `tests/eval/tool_calls.yaml` (~40 de/en cases) and `profiles/event_default.yaml`, `profiles/walking_on.yaml`; verify a test runs the runner against a stubbed endpoint and reports per-profile accuracy
+- [x] 9.2 Write `README.md` (setup, dry run, admin commands, e-stop limitation from SPEC §18.3, eval usage); verify the documented dry-run commands run as written
 
 ## 10. Integration check
 
-- [ ] 10.1 Run the full `pytest` suite and a scripted dry-run session (`chat`, `tool`, `estop`, `resume`, `quit`) against a stub endpoint; verify all tests pass and the session ends with the safe-shutdown sequence in the action record
+- [x] 10.1 Run the full `pytest` suite and a scripted dry-run session (`chat`, `tool`, `estop`, `resume`, `quit`) against a stub endpoint; verify all tests pass and the session ends with the safe-shutdown sequence in the action record

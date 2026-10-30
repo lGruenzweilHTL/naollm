@@ -6,7 +6,7 @@ import asyncio
 import signal
 import sys
 import time
-from typing import TYPE_CHECKING, Callable, List, Optional, Set
+from typing import TYPE_CHECKING, Callable, Optional, Set
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import get_app

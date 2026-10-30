@@ -1,7 +1,6 @@
 import threading
 import time
 
-import pytest
 
 from conftest import make_config
 from naollm.robot.adapter import EventKind

@@ -1,0 +1,6 @@
+# Event configuration: walking off, age game off.
+event_mode: false   # eval prints details; the tool set is the same as at the event
+motion:
+  walking_enabled: false
+privacy:
+  age_game_enabled: false

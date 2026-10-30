@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from pathlib import Path
 from typing import List, Optional
 
 from naollm.config import Config, ConfigError, cloud_warning, load_config, startup_problems
