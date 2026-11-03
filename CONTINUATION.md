@@ -13,7 +13,7 @@ Continue work on `naollm`, a local bridge that lets a NAO 6 robot hold spoken co
 - The venv is `/tmp/naollm-venv`. If it is gone, recreate it. `ensurepip` is missing, so use `python3 -m venv --without-pip`, bootstrap pip with `get-pip.py`, then run `pip install -e '.[dev]'`.
 - Run the tests with `/tmp/naollm-venv/bin/pytest`. Last result: 160 passed in about 47 s.
 - Only Python 3.13 is available here. The code targets `>=3.10`, so avoid 3.11+ only features.
-- `master` has no remote. Nothing is pushed.
+- `master` tracks `origin` (`git@github.com:lGruenzweilHTL/naollm.git`).
 
 ## Working rules
 
