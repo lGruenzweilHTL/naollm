@@ -22,7 +22,7 @@
 - [x] 3.6 Implement the remote audio stream and the wake word engine, with tests for failed start, failed setup and thresholds
 - [x] 3.7 Implement `status()` and the 5 s wake-up poll, with tests
 - [x] 3.8 Wire the real adapter into `main.py`, refuse `motors_enabled: true`, name the missing extra, and run a full lifecycle test against the double
-- [ ] 3.9 On the robot, with no motors: run `naollm admin` and check `say`, eye colours, `status`, `behaviors` and all head touches, then record any API differences in `spike/FINDINGS.md`
+- [x] 3.9 On the robot, with no motors: run `naollm admin` and check `say`, eye colours, `status`, `behaviors` and all head touches, then record any API differences in `spike/FINDINGS.md`
 
 ## 4. Voice turn
 
@@ -41,7 +41,7 @@
 - [x] 5.2 Implement `deploy/selftest.py` with no motors, with tests for missing touch, weak wake word and skipped checks
 - [x] 5.3 Add `naollm init` with `--skip-selftest`, `--only` and `--dry-run`, and run it against the double
 - [x] 5.4 Add a test that a written profile round-trips through `load_limits`
-- [ ] 5.5 On the robot, with no motors: run `naollm init`, and record the profile's `getLimits` shape and results in `spike/FINDINGS.md`
+- [x] 5.5 On the robot, with no motors: run `naollm init`, and record the profile's `getLimits` shape and results in `spike/FINDINGS.md`
 
 ## 6. Configuration and docs
 

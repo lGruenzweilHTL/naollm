@@ -151,10 +151,10 @@ Date: 2026-11-05. Robot on Wi-Fi at `nao.local`, posture `LyingBack`, Autonomous
 
 **Speech to text:** `audio/stt.py` was run once against real `faster-whisper` with the `tiny` model on the CPU, using generated audio with no words. The model loaded in 7.7 s, a forced language worked, and `info.all_language_probs` has the shape the code expects. This proves the API calls only. No real speech and no robot audio has been through Whisper, and the laptop's latency with the `small` model is unknown.
 
+**With the operator at the robot** (2026-11-05): `naollm admin` with `say`, eye colours and all three head touches, before and after `reconnect`, and `naollm init` with the self-test both worked, as the operator reported. No API differences were reported. The detailed output was not kept.
+
 ## Open tests that need no motors
 
-- With a person at the robot: `naollm admin`, hear `say`, see the eye colours, touch all three head sensors, and check they still arrive after `reconnect`.
-- `naollm init` with the self-test, including the listening sound, which uses the untested `ALAudioPlayer.playSine`.
 - A voice turn from each trigger: wake word, head tap, operator key. Tune VAD aggressiveness and `audio.wake_threshold`, and record latency against the SPEC §16 target.
 - The face probe again with a person in view, then enrolment of a consenting member after clearance.
 

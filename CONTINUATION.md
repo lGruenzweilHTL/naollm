@@ -27,7 +27,7 @@ The spike has run on the robot; see `spike/FINDINGS.md`. It found no German on t
 
 Both changes are implemented and tested against the fake robot and `tests/qi_double.py`. They wait for work at the robot, so they are not archived:
 
-- `add-qi-adapter`: real adapter, motors-off mode, voice turn, `naollm init`. Open: tasks 3.9, 4.8 and 5.5 (on-robot checks).
+- `add-qi-adapter`: real adapter, motors-off mode, voice turn, `naollm init`. Open: task 4.8 (a voice turn on the robot).
 - `add-faces-consent`: perception, consent registry, `faces`, `notice`. Open: task 1.1 (data shapes with a person in view) and 5.3 (real enrolment, after the school has cleared it and consent exists).
 
 The `FaceDetected` parsing follows the NAOqi docs and has not seen real data. Run `spike/spike.py --no-motion --faces 15` with a person in view, and compare.
@@ -36,7 +36,7 @@ Ran on the real robot with nobody present: `naollm admin` (speech, eyes, status,
 
 Not verified yet:
 
-- Anything that needs a person at the robot: hearing speech, seeing eyes, head touches, the listening sound, a voice turn, wake word tuning.
+- A voice turn on the robot and wake word tuning. `naollm admin` and `naollm init` with the self-test worked with the operator present.
 - Real speech through Whisper, and turn latency.
 - The tests have not run on Python 3.10.
 - `naollm eval` has not run against a real model.
