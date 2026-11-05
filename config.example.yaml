@@ -1,7 +1,16 @@
 # Copy to config.yaml and adjust. Every key is optional except robot.url.
+#
+# This file targets the current robot: English only, with motors off.
+# To restore German after a language pack is installed on the robot:
+#   robot.language: German, conversation.school_name: unserer Schule,
+#   stt.languages: [de, en], stt.fallback_language: de,
+#   audio.wake_language: German, audio.wake_words: ["Hallo NAO", "Hey NAO"].
+# Then tune the threshold again with `ears test` and run `naollm init`.
 robot:
   url: tcp://192.168.8.20:9559
-  language: German            # default turn language: German | English
+  language: English           # default turn language: German | English
+  battery_reliable: false     # this robot's battery reads 100 % whatever its charge
+  # listen_ip: 192.168.8.10   # this laptop's address, if remote audio does not arrive
 llm:
   base_url: http://localhost:11434/v1
   api_key: ollama
@@ -13,22 +22,24 @@ llm:
 conversation:
   history_turns: 6
   idle_reset_s: 60
-  school_name: unserer Schule
+  school_name: our school
 stt:
   engine: faster-whisper
-  model: small
-  languages: [de, en]
-  fallback_language: de
+  model: small               # drop to base if turns are slow on this laptop
+  languages: [en]
+  fallback_language: en
 audio:
   source: robot              # robot | robot_recorder_fallback
-  wake_words: ["Hallo NAO", "Hey NAO"]
-  wake_language: German      # fixed ASR language for word spotting (SPEC §11.1)
-  wake_threshold: 0.5
+  wake_words: ["Hey NAO"]
+  wake_language: English     # fixed ASR language for word spotting (SPEC §11.1)
+  wake_threshold: 0.4        # the phrase scored 0.43 and 0.44 on this robot; tune with `ears test`
   front_head_tap: true
   operator_key: space        # only when the admin prompt line is empty
   vad_silence_s: 0.8
   max_utterance_s: 15
+  no_speech_timeout_s: 5     # stop listening when nobody speaks after a trigger
 motion:
+  motors_enabled: false      # must stay false on the real robot until real motion exists
   walking_enabled: false
   max_turn_deg: 90
   max_step_cm: 30
@@ -36,11 +47,11 @@ motion:
   battery_motion_min_pct: 20
   battery_dance_min_pct: 30
   idle_crouch_s: 180
+# Not used while motors are off. Kept so they return with the motors.
 dances:
   macarena: showcase/dance_macarena
   robot: showcase/dance_robot
 gestures:
-  # Built-in paths are checked against the robot in phase 0.
   wave: animations/Stand/Gestures/Hey_1
   bow: showcase/gesture_bow
   nod: animations/Stand/Gestures/Yes_1
@@ -52,7 +63,9 @@ gestures:
 robot_profile_dir: ~/.naollm/robots
 animations_dir: animations
 privacy:
-  face_recognition_enabled: true
+  # Face recognition needs signed consent, and the school and club supervisor
+  # must clear it first (SPEC §12). Leave this false until they have.
+  face_recognition_enabled: false
   age_game_enabled: false
   persist_transcripts: false
   debug_logging: false

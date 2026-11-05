@@ -36,13 +36,14 @@ class EventWatcher:
             b.estop("touch")
         elif kind == EventKind.FRONT_HEAD:
             b.log.log("sensor", "front head touched")
-            if b.state.state != State.ACTING:
+            if b.state.state != State.ACTING and b.config.audio.front_head_tap:
                 b.request_listen("touch")
         elif kind == EventKind.FALL:
             b.state.force(State.FALLEN)
             b.cancel_turn()
-            self._guard(b.robot.motion.stop_all_behaviors)
-            self._guard(b.robot.motion.stop_move)
+            if b.motors_enabled:
+                self._guard(b.robot.motion.stop_all_behaviors)
+                self._guard(b.robot.motion.stop_move)
             b.log.log("alert", "ROBOT FALLEN: place it upright, then type 'resume'")
         elif kind == EventKind.BATTERY:
             self._battery(int(event.value))
@@ -55,11 +56,13 @@ class EventWatcher:
         elif kind == EventKind.CONNECTION_RESTORED:
             b.log.log("alert", "robot connection restored: type 'resume' to continue")
         elif kind == EventKind.WAKE_WORD:
-            if b.state.state == State.IDLE:
-                b.request_listen("wake_word")
+            b.request_listen("wake_word")
 
     def _battery(self, pct: int) -> None:
         b = self.bridge
+        if not b.config.robot.battery_reliable:
+            b.log.log("sensor", f"battery reading {pct} % ignored (robot.battery_reliable is false)")
+            return
         if pct >= BATTERY_CRITICAL_PCT:
             self._battery_critical_done = False
             if pct < b.config.motion.battery_motion_min_pct:
@@ -68,14 +71,18 @@ class EventWatcher:
         if self._battery_critical_done:
             return
         self._battery_critical_done = True
-        b.log.log("alert", f"battery {pct} %: sitting down and resting")
         b.cancel_turn()
         motion = b.robot.motion
-        self._guard(motion.stop_all_behaviors)
-        self._guard(motion.stop_move)
-        self._guard(lambda: motion.go_to_posture("Sit"))
-        self._guard(lambda: b.robot.speech.say(msg("battery_critical", b.language), False))
-        self._guard(motion.rest)
+        if b.motors_enabled:
+            b.log.log("alert", f"battery {pct} %: sitting down and resting")
+            self._guard(motion.stop_all_behaviors)
+            self._guard(motion.stop_move)
+            self._guard(lambda: motion.go_to_posture("Sit"))
+            self._guard(lambda: b.robot.speech.say(msg("battery_critical", b.language), False))
+            self._guard(motion.rest)
+        else:
+            b.log.log("alert", f"battery {pct} %: conversation paused")
+            self._guard(lambda: b.robot.speech.say(msg("battery_critical_still", b.language), False))
         with b.state.lock:
             if b.state.state not in (State.STOPPED, State.FALLEN, State.OFFLINE):
                 b.state.force(State.RESTING)
@@ -83,13 +90,16 @@ class EventWatcher:
     def _thermal(self, level: str) -> None:
         b = self.bridge
         if level == "hot":
-            b.log.log("alert", "joints hot: crouching and resting")
             b.cancel_turn()
             motion = b.robot.motion
-            self._guard(motion.stop_all_behaviors)
-            self._guard(motion.stop_move)
-            self._guard(lambda: motion.go_to_posture("Crouch"))
-            self._guard(motion.rest)
+            if b.motors_enabled:
+                b.log.log("alert", "joints hot: crouching and resting")
+                self._guard(motion.stop_all_behaviors)
+                self._guard(motion.stop_move)
+                self._guard(lambda: motion.go_to_posture("Crouch"))
+                self._guard(motion.rest)
+            else:
+                b.log.log("alert", "joints hot: conversation paused")
             b.state.force(State.RESTING)
         elif level == "warm":
             b.log.log("alert", "joints warm: dances and steps disabled")

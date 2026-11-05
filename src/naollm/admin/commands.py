@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import shlex
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Coroutine, Dict, List, Optional
 
 from naollm.config import cloud_warning
 from naollm.state import State
+from naollm.tools.messages import msg
 from naollm.tools.schemas import POSTURES, ToolSpec
 
 if TYPE_CHECKING:
+    from naollm.admin.faces import Faces
+    from naollm.audio.listener import Listener
     from naollm.bridge import Bridge
     from naollm.llm.loop import ConversationLoop
 
@@ -30,7 +33,12 @@ HELP: Dict[str, str] = {
     "reset": "reset  new visitor: clear history and displacement budget",
     "estop": "estop  emergency stop (also Ctrl+E, head touch)",
     "resume": "resume  leave STOPPED/FALLEN/RESTING after confirmation",
-    "listen": "listen  start listening (also space on an empty line)",
+    "listen": "listen [--wav <file>]  start listening (also space on an empty line); --wav only in a dry run",
+    "ears": "ears on|off|test  wake word on or off (head tap and key keep working), or show confidences for 30 s",
+    "reconnect": "reconnect  connect again after a network drop; then type 'resume'",
+    "faces": "faces list | enroll <name> | delete <name> | delete --all  consent-backed face records",
+    "notice": "notice  robot speaks the privacy notice (not during a turn)",
+    "anim": "anim play <name>  play a library animation (refused with motors off)",
     "chat": "chat [--de|--en] <text>  send typed visitor text to the LLM (run mode)",
     "quit": "quit  safe shutdown and exit",
 }
@@ -111,6 +119,14 @@ def completions(bridge: "Bridge", words: List[str], current: str) -> List[str]:
         options = list(POSTURES)
     elif cmd in ("walk", "llm") and len(words) == 1:
         options = ["on", "off"]
+    elif cmd == "ears" and len(words) == 1:
+        options = ["on", "off", "test"]
+    elif cmd == "listen" and len(words) == 1:
+        options = ["--wav"]
+    elif cmd == "faces" and len(words) == 1:
+        options = ["list", "enroll", "delete"]
+    elif cmd == "faces" and words[1:] == ["delete"]:
+        options = ["--all"]
     elif cmd == "chat" and len(words) == 1:
         options = ["--de", "--en"]
     else:
@@ -127,6 +143,8 @@ class Commands:
         confirm: Confirm,
         conversation: Optional["ConversationLoop"] = None,
         config_path: str = "",
+        listener: Optional["Listener"] = None,
+        faces: Optional["Faces"] = None,
     ) -> None:
         self.bridge = bridge
         self.mode = mode
@@ -134,6 +152,10 @@ class Commands:
         self.confirm = confirm
         self.conversation = conversation
         self.config_path = config_path
+        self.listener = listener
+        self.faces = faces
+        # Set by the interactive console: runs a job in the background, so the prompt stays available.
+        self.spawn: Optional[Callable[[Coroutine[Any, Any, None]], Any]] = None
 
     async def execute(self, line: str) -> bool:
         """Run one command line. Returns False when the console should quit."""
@@ -150,6 +172,10 @@ class Commands:
         except CommandError as err:
             self.out(f"error: {err}")
             return True
+        except Exception as err:  # for example a robot call on a lost session
+            self.out(f"error: {err}")
+            self.bridge.log.log("error", f"command failed: {err!r}", source="admin")
+            return True
 
     # -- information ---------------------------------------------------
     async def cmd_help(self, args: List[str]) -> None:
@@ -165,18 +191,22 @@ class Commands:
         b = self.bridge
         try:
             s = b.robot.events.status()
+            battery = f"battery {s.battery_pct} %" if b.config.robot.battery_reliable else "battery hidden"
             robot_part = (f"{'connected' if s.connected else 'DISCONNECTED'} | posture {s.posture} | "
-                          f"battery {s.battery_pct} % | temp {s.thermal}")
+                          f"{battery} | temp {s.thermal}")
         except Exception:
             robot_part = "robot status unavailable"
         llm = "—" if self.conversation is None else ("ON" if b.llm_enabled else "OFF")
         faces = len(b.robot.perception.recognized_names()) if b.config.privacy.face_recognition_enabled else 0
-        return (f"{b.state.state.value} | {robot_part} | walking {'ON' if b.walking else 'OFF'} | "
+        motors = "" if b.motors_enabled else "motors OFF | "
+        return (f"{b.state.state.value} | {motors}{robot_part} | walking {'ON' if b.walking else 'OFF'} | "
                 f"LLM {llm} | faces {faces}")
 
     async def cmd_status(self, args: List[str]) -> None:
         b = self.bridge
         self.out(self.status_line())
+        if not b.motors_enabled:
+            self.out("  motors are off: the bridge commands no motor")
         self.out(f"  model {b.config.llm.model} at {b.config.llm.base_url}")
         self.out(f"  installed behaviors: {len(b.robot.motion.installed_behaviors())}")
         self.out(f"  displacement used: {b.displacement_cm} cm of "
@@ -188,6 +218,8 @@ class Commands:
 
     async def cmd_tools(self, args: List[str]) -> None:
         reg = self.bridge.registry
+        if not self.bridge.motors_enabled:
+            self.out("  motors are off: motion tools are hidden and refused")
         for spec in reg.specs.values():
             params = ", ".join(
                 f"{p.name}: {'|'.join(p.choices) if p.kind == 'enum' else f'{p.minimum}..{p.maximum}'}"
@@ -208,6 +240,13 @@ class Commands:
             self.out("  missing: " + ", ".join(missing))
 
     # -- tools and motion ----------------------------------------------
+    def _refuse_with_motors_off(self, command: str) -> bool:
+        if self.bridge.motors_enabled:
+            return False
+        self.out(f"{command}: refused, motors are off")
+        self.bridge.log.log("admin", f"{command} refused: motors off", source="admin")
+        return True
+
     async def run_tool(self, name: str, args: Dict[str, Any]) -> None:
         result = await asyncio.to_thread(self.bridge.gate.check_and_run, name, args, "admin")
         if result.ok:
@@ -228,6 +267,8 @@ class Commands:
     async def cmd_posture(self, args: List[str]) -> None:
         if len(args) != 1:
             raise CommandError("usage: posture <Stand|Sit|Crouch>")
+        if self._refuse_with_motors_off("posture"):
+            return
         await self.run_tool("set_posture", {"posture": args[0]})
 
     async def cmd_say(self, args: List[str]) -> None:
@@ -239,6 +280,8 @@ class Commands:
 
     async def cmd_wake(self, args: List[str]) -> None:
         b = self.bridge
+        if self._refuse_with_motors_off("wake"):
+            return
         await asyncio.to_thread(b.robot.motion.wake_up)
         b.state.transition_from(State.RESTING, State.IDLE)
         b.log.log("admin", "wake", source="admin")
@@ -246,6 +289,8 @@ class Commands:
 
     async def cmd_rest(self, args: List[str]) -> None:
         b = self.bridge
+        if self._refuse_with_motors_off("rest"):
+            return
         if b.robot.events.status().posture != "Crouch" and b.state.state not in (State.STOPPED, State.FALLEN):
             await self.run_tool("set_posture", {"posture": "Crouch"})
         await asyncio.to_thread(b.robot.motion.rest)
@@ -256,8 +301,18 @@ class Commands:
     async def cmd_walk(self, args: List[str]) -> None:
         if args not in (["on"], ["off"]):
             raise CommandError("usage: walk on|off")
+        if args[0] == "on" and self._refuse_with_motors_off("walk on"):
+            return
         self.bridge.set_walking(args[0] == "on")
         self.out(f"walking {args[0].upper()}")
+
+    async def cmd_anim(self, args: List[str]) -> None:
+        if len(args) != 2 or args[0] != "play":
+            raise CommandError("usage: anim play <name>")
+        if self._refuse_with_motors_off("anim play"):
+            return
+        self.out("anim play: not available; reference the animation in gestures or dances "
+                 "and run it with 'tool play_gesture' or 'tool dance'")
 
     async def cmd_llm(self, args: List[str]) -> None:
         if args not in (["on"], ["off"]):
@@ -289,14 +344,87 @@ class Commands:
         if answer.strip().lower() != "y":
             self.out(f"still {b.state.state.value}")
             return
+        problem = b.resume_problem()
         if b.resume():
             self.out("resumed: IDLE")
         else:
-            self.out("resume refused: robot still reports fallen")
+            self.out(f"resume refused: {problem or 'state changed'}")
 
     # -- conversation --------------------------------------------------
     async def cmd_listen(self, args: List[str]) -> None:
-        self.bridge.request_listen("operator")
+        b = self.bridge
+        if args and (len(args) != 2 or args[0] != "--wav"):
+            raise CommandError("usage: listen [--wav <file>]")
+        if args:
+            load = getattr(b.robot.audio, "load_wav", None)
+            if load is None:
+                raise CommandError("--wav only works in a dry run")
+            if b.state.state != State.IDLE:
+                raise CommandError(f"cannot listen in state {b.state.state.value}")
+            try:
+                load(args[1])
+            except ValueError as err:
+                raise CommandError(str(err)) from None
+        if self.listener is None:
+            b.request_listen("operator")
+            return
+        task = self.listener.start("operator")
+        if task is None:
+            return
+        try:
+            await task
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                raise
+
+    async def cmd_ears(self, args: List[str]) -> None:
+        if args not in (["on"], ["off"], ["test"]):
+            raise CommandError("usage: ears on|off|test")
+        if self.listener is None:
+            self.out("the wake word is not available")
+            return
+        if args[0] == "test":
+            await self.listener.ears_test(self.out)
+            return
+        problem = self.listener.set_ears(args[0] == "on")
+        self.out(problem or f"ears {args[0].upper()}")
+
+    # -- faces and privacy -----------------------------------------------
+    async def cmd_faces(self, args: List[str]) -> None:
+        usage = "usage: faces list | faces enroll <name> | faces delete <name> | faces delete --all"
+        if self.faces is None:
+            raise CommandError("the consent registry is not available")
+        if args == ["list"]:
+            await self.faces.list()
+        elif len(args) == 2 and args[0] == "enroll":
+            await self.faces.enroll(args[1])
+        elif args == ["delete", "--all"]:
+            await self.faces.delete_all()
+        elif len(args) == 2 and args[0] == "delete":
+            await self.faces.delete(args[1])
+        else:
+            raise CommandError(usage)
+
+    async def cmd_notice(self, args: List[str]) -> None:
+        b = self.bridge
+        if b.state.state != State.IDLE or b.exclusive or (self.conversation is not None and self.conversation.busy):
+            self.out(f"notice: refused during a turn (state {b.state.state.value})")
+            return
+        text = msg("notice", b.language, wake=b.config.audio.wake_words[0] if b.config.audio.wake_words else "NAO")
+        if b.motors_enabled:
+            text += " " + msg("notice_tracking", b.language)
+        b.log.log("admin", "privacy notice spoken", source="admin")
+        await asyncio.to_thread(b.robot.speech.say, text, False)
+
+    async def cmd_reconnect(self, args: List[str]) -> None:
+        b = self.bridge
+        try:
+            await asyncio.to_thread(b.reconnect)
+        except Exception as err:
+            self.out(f"reconnect failed: {err}")
+            b.log.log("alert", f"reconnect failed: {err}", source="admin")
+            return
+        self.out(f"reconnected; state is still {b.state.state.value}. Type 'resume' to continue")
 
     async def cmd_chat(self, args: List[str]) -> None:
         if self.conversation is None:
@@ -309,6 +437,9 @@ class Commands:
             raise CommandError("usage: chat [--de|--en] <text>")
         if not self.bridge.llm_enabled:
             self.out("LLM is off; type 'llm on'")
+            return
+        if self.bridge.exclusive:
+            self.out(f"{self.bridge.exclusive} is running")
             return
         if self.conversation.busy:
             self.out("a turn is still running")

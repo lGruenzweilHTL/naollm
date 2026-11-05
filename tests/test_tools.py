@@ -124,7 +124,7 @@ def test_status(bridge, robot):
 
 def test_who_is_here_names_only_enrolled(bridge, robot):
     robot.people = 3
-    robot.faces = ["Lukas"]
+    robot.seen_faces = ["Lukas"]
     r = bridge.gate.check_and_run("who_is_here", {}, lang="en")
     assert r.result == "3 people; known club members: Lukas"
 
@@ -132,7 +132,7 @@ def test_who_is_here_names_only_enrolled(bridge, robot):
 def test_who_is_here_without_face_recognition(make_bridge, robot):
     b = make_bridge(make_config(privacy={"face_recognition_enabled": False}))
     robot.people = 2
-    robot.faces = ["Lukas"]
+    robot.seen_faces = ["Lukas"]
     assert b.gate.check_and_run("who_is_here", {}, lang="en").result == "2 people"
 
 
@@ -142,6 +142,6 @@ def test_dance_finished(bridge):
 
 def test_names_not_logged_in_event_mode(make_bridge, robot):
     b = make_bridge(make_config(event_mode=True))
-    robot.faces = ["Lukas"]
+    robot.seen_faces = ["Lukas"]
     b.gate.check_and_run("who_is_here", {})
     assert not any("Lukas" in e.render() for e in b.log.entries())

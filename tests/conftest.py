@@ -67,3 +67,15 @@ def make_bridge(robot):
 @pytest.fixture
 def bridge(make_bridge):
     return make_bridge()
+
+
+@pytest.fixture
+def off_robot(robot) -> FakeRobot:
+    """A fake robot at rest, as motors-off startup requires."""
+    robot.stiff = False
+    return robot
+
+
+@pytest.fixture
+def off_bridge(off_robot, make_bridge):
+    return make_bridge(make_config(motion={"motors_enabled": False}))

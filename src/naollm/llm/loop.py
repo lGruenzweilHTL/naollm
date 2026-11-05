@@ -11,14 +11,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from naollm.llm.client import ChatClient, LLMUnavailable, ToolCall
 from naollm.llm.prompts import system_prompt
 from naollm.llm.sentences import SentenceSplitter
+from naollm.bridge import TTS_LANGUAGE
 from naollm.state import State
 from naollm.tools.messages import msg
 
 if TYPE_CHECKING:
     from naollm.bridge import Bridge
-
-TTS_LANGUAGE = {"de": "German", "en": "English"}
-
 
 class Speaker:
     """Speaks queued sentences one after another on a worker task."""
@@ -105,7 +103,7 @@ class ConversationLoop:
     def _messages(self, user_text: str, lang: str) -> List[Dict[str, Any]]:
         cfg = self.bridge.config.conversation
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt(lang, cfg.school_name)}
+            {"role": "system", "content": system_prompt(lang, cfg.school_name, self.bridge.motors_enabled)}
         ]
         turns = self.history[-cfg.history_turns:] if cfg.history_turns else []
         for user, answer in turns:
@@ -122,7 +120,10 @@ class ConversationLoop:
     def start_turn(self, text: str, lang: Optional[str] = None) -> asyncio.Task:
         """Run a turn as a task that the emergency stop can cancel from any thread."""
         loop = asyncio.get_running_loop()
-        task = loop.create_task(self.run_turn(text, lang))
+        return self.track(loop.create_task(self.run_turn(text, lang)), loop)
+
+    def track(self, task: asyncio.Task, loop: asyncio.AbstractEventLoop) -> asyncio.Task:
+        """Make `task` the current turn: it counts as busy and the emergency stop cancels it."""
         self._task = task
 
         def cancel() -> None:
@@ -133,12 +134,14 @@ class ConversationLoop:
         return task
 
     async def run_turn(self, text: str, lang: Optional[str] = None,
-                       now: Optional[float] = None) -> TurnResult:
+                       now: Optional[float] = None, prepared: bool = False) -> TurnResult:
+        """`prepared`: the listener has already entered THINKING for this turn."""
         bridge = self.bridge
-        lang = lang or bridge.language
+        lang = bridge.turn_language(lang or bridge.language)
         started = time.monotonic()
         self._expire_history(time.monotonic() if now is None else now)
-        if bridge.state.state not in (State.IDLE, State.LISTENING):
+        allowed = (State.IDLE, State.LISTENING, State.THINKING) if prepared else (State.IDLE, State.LISTENING)
+        if bridge.state.state not in allowed or bridge.exclusive:
             bridge.log.log("turn", f"turn refused in state {bridge.state.state.value}")
             return TurnResult("refused")
         await asyncio.to_thread(bridge.before_turn)

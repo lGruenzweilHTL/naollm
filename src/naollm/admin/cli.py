@@ -6,7 +6,7 @@ import asyncio
 import signal
 import sys
 import time
-from typing import TYPE_CHECKING, Callable, Optional, Set
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import get_app
@@ -21,7 +21,8 @@ if TYPE_CHECKING:
     from naollm.bridge import Bridge
 
 CTRL_C_WINDOW_S = 3.0
-INLINE = frozenset({"resume", "quit", "help", "status", "tools", "behaviors"})
+# `resume` and `faces` ask the operator, and only one prompt can be active at a time.
+INLINE = frozenset({"resume", "quit", "help", "status", "tools", "behaviors", "faces"})
 
 
 class CtrlC:
@@ -69,6 +70,7 @@ class Console:
         self._session: Optional[PromptSession] = None
         self._main: Optional[asyncio.Task] = None
         self._lines: Optional[asyncio.StreamReader] = None
+        self.on_start: Optional[Callable[[], Awaitable[None]]] = None  # may ask the operator
 
     # -- output --------------------------------------------------------
     def print(self, text: str) -> None:
@@ -154,7 +156,10 @@ class Console:
 
     async def _run_interactive(self) -> None:
         self._session = self.make_session()
+        self.commands.spawn = self._spawn
         with patch_stdout(raw=True):
+            if self.on_start is not None:
+                await self.on_start()
             while self.exit_reason is None:
                 try:
                     line = await self._session.prompt_async("naollm> ")
@@ -181,6 +186,8 @@ class Console:
 
     async def _run_plain(self) -> None:
         # Scripted input (pipe): commands run one after another.
+        if self.on_start is not None:
+            await self.on_start()
         while self.exit_reason is None:
             line = await self._read_plain_line()
             if line is None:
@@ -199,10 +206,14 @@ class Console:
             return True
         if name in INLINE:
             return await self.commands.execute(line)
-        task = asyncio.get_running_loop().create_task(self.commands.execute(line))
+        self._spawn(self.commands.execute(line))
+        return True
+
+    def _spawn(self, job) -> asyncio.Task:
+        task = asyncio.get_running_loop().create_task(job)
         self._tasks.add(task)
         task.add_done_callback(self._task_done)
-        return True
+        return task
 
     def _task_done(self, task: asyncio.Task) -> None:
         self._tasks.discard(task)

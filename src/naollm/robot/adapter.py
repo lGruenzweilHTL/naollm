@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Literal, Protocol, Tuple, runtime_checkable
+from typing import Any, Callable, Dict, List, Literal, Optional, Protocol, Tuple, runtime_checkable
 
 Outcome = Literal["finished", "interrupted"]
 ThermalLevel = Literal["ok", "warm", "hot"]
@@ -45,12 +45,29 @@ class EventKind(str, Enum):
     CONNECTION_LOST = "connection_lost"
     CONNECTION_RESTORED = "connection_restored"
     WAKE_WORD = "wake_word"
+    WAKE_CANDIDATE = "wake_candidate"
 
 
 @dataclass(frozen=True)
 class RobotEvent:
     kind: EventKind
     value: Any = None
+
+
+@dataclass(frozen=True)
+class WakeHit:
+    """Value of WAKE_WORD and WAKE_CANDIDATE events."""
+
+    phrase: str
+    confidence: float
+
+
+class MotorsDisabled(RuntimeError):
+    """A motion command reached an adapter that has no motor code."""
+
+
+class RobotOffline(RuntimeError):
+    """There is no session to the robot."""
 
 
 @dataclass(frozen=True)
@@ -94,8 +111,10 @@ class Speech(Protocol):
 class Audio(Protocol):
     def start_stream(self, on_chunk: Callable[[bytes], None]) -> None: ...
     def stop_stream(self) -> None: ...
-    def configure_wake_words(self, words: List[str], threshold: float) -> None: ...
+    def configure_wake_words(self, words: List[str], threshold: float, language: str) -> None: ...
     def set_wake_enabled(self, enabled: bool) -> None: ...
+    def wake_languages(self) -> List[str]: ...
+    def play_listen_sound(self) -> None: ...
 
 
 @runtime_checkable
@@ -107,11 +126,16 @@ class Events(Protocol):
 
 @runtime_checkable
 class Perception(Protocol):
+    available: bool
+
+    def start(self, recognition: bool) -> None: ...
     def set_tracking(self, enabled: bool) -> None: ...
     def people_count(self) -> int: ...
     def recognized_names(self) -> List[str]: ...
+    def learned_names(self) -> List[str]: ...
     def learn_face(self, name: str) -> bool: ...
     def forget_face(self, name: str) -> bool: ...
+    def forget_all_faces(self) -> bool: ...
 
 
 @runtime_checkable
@@ -125,3 +149,6 @@ class RobotAdapter(Protocol):
     def connect(self, url: str) -> None: ...
     def disconnect(self) -> None: ...
     def info(self) -> RobotInfo: ...
+    def rest_problem(self, check_life: bool = True) -> Optional[str]: ...
+    def autonomous_life(self) -> str: ...
+    def disable_autonomous_life(self) -> None: ...

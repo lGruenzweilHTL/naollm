@@ -24,7 +24,7 @@ def test_example_config_loads():
     cfg = load_config(ROOT / "config.example.yaml")
     assert cfg.llm.model == "gemma4:e2b"
     assert cfg.gestures["victory"] == "anim:victory"
-    assert cfg.audio.wake_language == "German"
+    assert cfg.audio.wake_language == "English"
     assert cfg.event_mode is True
 
 
@@ -90,3 +90,53 @@ def test_public_endpoint_warns():
     cfg = parse_config(minimal(llm={"base_url": "https://api.example.com/v1"}))
     assert "not local" in cloud_warning(cfg)
     assert not is_local_endpoint("https://8.8.8.8/v1")
+
+
+def test_new_key_defaults():
+    cfg = parse_config(minimal())
+    assert cfg.motion.motors_enabled is True
+    assert cfg.robot.battery_reliable is True
+    assert cfg.robot.listen_ip is None
+    assert cfg.audio.no_speech_timeout_s == 5.0
+    assert cfg.robot.language == "German" and cfg.stt.languages == ["de", "en"]
+
+
+def test_new_keys_set():
+    data = minimal()
+    data["robot"].update(battery_reliable=False, listen_ip="10.0.0.165")
+    data["motion"] = {"motors_enabled": False}
+    data["audio"] = {"no_speech_timeout_s": 3}
+    cfg = parse_config(data)
+    assert cfg.motion.motors_enabled is False and cfg.robot.battery_reliable is False
+    assert cfg.robot.listen_ip == "10.0.0.165" and cfg.audio.no_speech_timeout_s == 3
+
+
+def test_invalid_listen_address_names_the_key():
+    data = minimal()
+    data["robot"]["listen_ip"] = "laptop"
+    with pytest.raises(ConfigError, match=r"robot\.listen_ip"):
+        parse_config(data)
+
+
+def test_no_speech_timeout_must_be_positive():
+    data = minimal()
+    data["audio"] = {"no_speech_timeout_s": 0}
+    with pytest.raises(ConfigError, match="no_speech_timeout_s"):
+        parse_config(data)
+
+
+def test_example_targets_this_robot():
+    cfg = load_config(ROOT / "config.example.yaml")
+    assert cfg.motion.motors_enabled is False
+    assert cfg.robot.language == "English" and cfg.robot.battery_reliable is False
+    assert cfg.stt.languages == ["en"] and cfg.stt.fallback_language == "en"
+    assert cfg.audio.wake_language == "English" and cfg.audio.wake_words == ["Hey NAO"]
+    assert cfg.audio.wake_threshold == 0.4
+    assert cfg.privacy.face_recognition_enabled is False
+    assert "German" in (ROOT / "config.example.yaml").read_text()
+
+
+def test_only_url_keeps_german_and_motors():
+    cfg = parse_config(minimal())
+    assert cfg.robot.language == "German" and cfg.audio.wake_language == "German"
+    assert cfg.motion.motors_enabled is True

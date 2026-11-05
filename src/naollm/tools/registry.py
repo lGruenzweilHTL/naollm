@@ -61,12 +61,19 @@ def build_catalogue(
     return cat
 
 
+# Hidden from the LLM with motors off (the gate refuses them as well).
+MOTOR_TOOLS = frozenset({"play_gesture", "dance", "set_posture", "look", "turn", "step", "stop"})
+
+
 class Registry:
     """Answers which tools exist and which are offered to the LLM right now."""
 
-    def __init__(self, config: Config, catalogue: Catalogue) -> None:
+    def __init__(self, config: Config, catalogue: Catalogue, motors_enabled: bool = True,
+                 perception_available: bool = True) -> None:
         self.config = config
         self.catalogue = catalogue
+        self.motors_enabled = motors_enabled
+        self.perception_available = perception_available
         self.specs: Dict[str, ToolSpec] = build_specs(
             gestures=list(catalogue.gestures),
             dances=list(catalogue.dances),
@@ -80,6 +87,10 @@ class Registry:
     def enabled(self, name: str, walking: bool) -> bool:
         spec = self.specs.get(name)
         if spec is None:
+            return False
+        if name in MOTOR_TOOLS and not self.motors_enabled:
+            return False
+        if name == "who_is_here" and not self.perception_available:
             return False
         if name in ("turn", "step") and not walking:
             return False

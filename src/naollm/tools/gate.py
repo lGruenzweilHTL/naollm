@@ -12,7 +12,7 @@ from naollm.robot.adapter import RobotStatus
 from naollm.state import State
 from naollm.tools.handlers import HANDLERS
 from naollm.tools.messages import msg
-from naollm.tools.schemas import LED, MOTION, STATUS_COLOURS, ArgError, ToolSpec, check_args
+from naollm.tools.schemas import LED, MOTION, STATUS_COLOURS, STOP, ArgError, ToolSpec, check_args
 
 if TYPE_CHECKING:
     from naollm.bridge import Bridge
@@ -82,8 +82,15 @@ class Gate:
 
         # 2. arguments
         args, err = self._parse_args(spec, raw_args)
-        if err is not None:
+        motors_off = not bridge.motors_enabled and spec.category in (MOTION, STOP)
+        # With motors off the action enums can be empty, because behaviors are
+        # not installed. An unknown action must still report motors_off.
+        if err is not None and not (motors_off and err.reason == "bad_choice"):
             return self._fail(err.reason, lang, **err.params)
+        if motors_off:
+            return self._fail("motors_off", lang)
+        if spec.name == "who_is_here" and not bridge.robot.perception.available:
+            return self._fail("perception_off", lang)
         assert args is not None
 
         if spec.category not in (MOTION, LED):

@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+robot = ["qi>=3.1.5"]
+voice = ["faster-whisper>=1.0", "webrtcvad-wheels>=2.0.14"]
 
 [project.scripts]
 naollm = "naollm.main:main"

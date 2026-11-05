@@ -1,4 +1,5 @@
 # Operator has switched walking on (`walk on`).
 event_mode: false
 motion:
+  motors_enabled: true   # eval checks tool choice on the fake robot, whatever the base config says
   walking_enabled: true

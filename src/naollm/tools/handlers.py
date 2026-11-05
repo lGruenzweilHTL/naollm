@@ -92,9 +92,10 @@ def set_eyes(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
 
 def get_status(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
     s = bridge.robot.events.status()
+    battery = bridge.config.robot.battery_reliable
     if lang == "en":
-        return f"battery {s.battery_pct} %, posture {s.posture}, temperature {s.thermal}"
-    return f"Akku {s.battery_pct} %, Haltung {s.posture}, Temperatur {s.thermal}"
+        return (f"battery {s.battery_pct} %, " if battery else "") + f"posture {s.posture}, temperature {s.thermal}"
+    return (f"Akku {s.battery_pct} %, " if battery else "") + f"Haltung {s.posture}, Temperatur {s.thermal}"
 
 
 def who_is_here(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:

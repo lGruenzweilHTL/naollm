@@ -5,9 +5,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from typing import List, Optional
+import tempfile
+from pathlib import Path
+from typing import Any, Callable, List, Optional
 
 from naollm.config import Config, ConfigError, cloud_warning, load_config, startup_problems
+
+
+REST_POLL_S = 5.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--dir", default="animations", help="animation directory")
         p.add_argument("--profile", default=None, help="robot profile with joint limits")
 
+    ini = sub.add_parser("init", help="check and prepare a robot, with no motors")
+    ini.add_argument("--robot", required=True, help="robot IP or hostname")
+    ini.add_argument("--config", default="config.yaml", help="path to the YAML config")
+    ini.add_argument("--skip-selftest", action="store_true", help="leave out the interactive self-test")
+    ini.add_argument("--only", choices=["languages", "settings", "profile", "animations", "selftest"],
+                     help="connect, then run this step only")
+    ini.add_argument("--dry-run", action="store_true", help="use the fake robot and write no file")
+
     ev = sub.add_parser("eval", help="tool-call evaluation against the configured LLM")
     ev.add_argument("cases", nargs="?", default="tests/eval/tool_calls.yaml")
     ev.add_argument("--config", default="config.yaml")
@@ -52,12 +65,14 @@ def _load(path: str) -> Config:
     return config
 
 
-def keyframe_loader(config: Config, robot_id: Optional[str] = None):
+def keyframe_loader(config: Config, robot_id: Callable[[], Optional[str]]):
+    """`robot_id` is called when loading: the real robot only knows it after connecting."""
     from naollm.animations.library import find_profile, load_library, playable
     from naollm.animations.limits import load_limits
 
     def load():
-        profile = find_profile(config.robot_profile_dir, robot_id) if robot_id else None
+        rid = robot_id()
+        profile = find_profile(config.robot_profile_dir, rid) if rid else None
         entries = load_library(config.animations_dir, load_limits(profile))
         return playable(entries, config.event_mode)
 
@@ -65,55 +80,91 @@ def keyframe_loader(config: Config, robot_id: Optional[str] = None):
 
 
 async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "",
-                  interactive: Optional[bool] = None) -> int:
+                  interactive: Optional[bool] = None, robot: Any = None,
+                  consent_path: Optional[Path] = None) -> int:
     from naollm.admin.cli import Console
     from naollm.admin.commands import Commands
-    from naollm.bridge import Bridge
+    from naollm.admin.consent import DEFAULT_PATH, ConsentRegistry
+    from naollm.admin.faces import Faces
+    from naollm.audio.listener import Listener
+    from naollm.audio.stt import SpeechToText
+    from naollm.bridge import Bridge, RobotNotAtRest
     from naollm.llm.client import OpenAIChatClient
     from naollm.llm.loop import ConversationLoop
+    from naollm.robot.adapter import RobotOffline
     from naollm.robot.fake_adapter import FakeRobot
+    from naollm.robot.qi_adapter import QiRobot, QiUnavailable, RobotConnectionError
 
-    if not dry_run:
-        print("The real robot adapter arrives after the phase 0 spike. Use --dry-run for now.",
-              file=sys.stderr)
-        return 2
-
-    targets = [t for t in list(config.dances.values()) + list(config.gestures.values())
-               if not t.startswith("anim:")]
-    robot = FakeRobot(installed_behaviors=targets, printer=print)
-    bridge = Bridge(config, robot, keyframe_loader=keyframe_loader(config, robot.info().robot_id))
+    if dry_run:
+        targets = [t for t in list(config.dances.values()) + list(config.gestures.values())
+                   if not t.startswith("anim:")]
+        robot = FakeRobot(installed_behaviors=targets, printer=print)
+    else:
+        if config.motion.motors_enabled:
+            print("Refusing to start: real motion is not implemented yet. "
+                  "Set motion.motors_enabled: false, or use --dry-run.", file=sys.stderr)
+            return 2
+        if robot is None:
+            robot = QiRobot(listen_ip=config.robot.listen_ip)
+    bridge = Bridge(config, robot, keyframe_loader=keyframe_loader(config, lambda: robot.info().robot_id))
     bridge.log.subscribe(lambda entry: print(entry.render(), flush=True))
+    if not dry_run:
+        robot.log = lambda kind, message: bridge.log.log(kind, message)
     warning = cloud_warning(config)
     if warning:
         bridge.log.log("alert", warning)
 
     client = OpenAIChatClient(config.llm) if mode == "run" else None
     conversation = ConversationLoop(bridge, client) if client else None
+    stt = SpeechToText(config.stt) if conversation is not None else None
+    listener = Listener(bridge, conversation, stt)
+    # A dry run never touches the real consent file: its faces do not exist.
+    dry_dir = tempfile.TemporaryDirectory(prefix="naollm-dry-run-") if dry_run else None
+    registry = ConsentRegistry(Path(dry_dir.name) / "consent.json" if dry_dir else consent_path or DEFAULT_PATH)
     commands = Commands(bridge, mode, out=print, confirm=None, conversation=conversation,  # type: ignore[arg-type]
-                        config_path=config_path)
+                        config_path=config_path, listener=listener)
+    faces = Faces(bridge, registry, commands, listener)
+    commands.faces = faces
     console = Console(bridge, commands, interactive=interactive)
+    console.on_start = faces.startup_check
 
     async def idle_monitor() -> None:
         while True:
             await asyncio.sleep(1.0)
             await asyncio.to_thread(bridge.idle_tick)
 
-    monitor: Optional[asyncio.Task] = None
+    async def rest_monitor() -> None:
+        while True:
+            await asyncio.sleep(REST_POLL_S)
+            await asyncio.to_thread(bridge.rest_tick)
+
+    monitors: List[asyncio.Task] = []
     reason = "exception"
     try:
-        bridge.startup()
-        monitor = asyncio.get_running_loop().create_task(idle_monitor())
-        print(f"naollm ready (mode={mode}, dry-run). Type 'help'.", flush=True)
+        try:
+            bridge.startup(greet=False)
+        except (RobotNotAtRest, RobotConnectionError, QiUnavailable, RobotOffline) as err:
+            print(f"Refusing to start: {err}", file=sys.stderr)
+            bridge.mark_not_started()
+            return 2
+        # A dry run loads the model at the first `listen`, so prompt tuning needs no model download.
+        await listener.prepare(load_model=not dry_run)
+        bridge.greet()
+        loop = asyncio.get_running_loop()
+        monitors = [loop.create_task(idle_monitor()), loop.create_task(rest_monitor())]
+        print(f"naollm ready (mode={mode}{', dry-run' if dry_run else ''}). Type 'help'.", flush=True)
         reason = await console.run()
     except BaseException:
         bridge.estop("exception")
         raise
     finally:
-        if monitor is not None:
+        for monitor in monitors:
             monitor.cancel()
         bridge.shutdown()
         if client is not None:
             await client.close()
+        if dry_dir is not None:
+            dry_dir.cleanup()
     return 0 if reason in ("quit", "eof", "ctrl_c", "sigterm", "sighup") else 1
 
 
@@ -180,6 +231,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             return asyncio.run(run_app(config, args.command, args.dry_run, args.config))
         if args.command == "anim":
             return cmd_anim(args)
+        if args.command == "init":
+            from naollm.deploy.init import run_init_cli
+            return run_init_cli(args, _load(args.config))
         if args.command == "eval":
             from naollm.eval import run_eval_cli
             return run_eval_cli(args)

@@ -27,6 +27,18 @@ Language = Literal["German", "English"]
 class RobotConfig(_Strict):
     url: str
     language: Language = "German"
+    battery_reliable: bool = True
+    listen_ip: Optional[str] = None
+
+    @field_validator("listen_ip")
+    @classmethod
+    def _check_listen_ip(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            try:
+                ipaddress.ip_address(value)
+            except ValueError:
+                raise ValueError(f"{value!r} is not an IP address") from None
+        return value
 
 
 class LLMConfig(_Strict):
@@ -61,9 +73,11 @@ class AudioConfig(_Strict):
     operator_key: str = "space"
     vad_silence_s: float = Field(0.8, gt=0)
     max_utterance_s: float = Field(15.0, gt=0)
+    no_speech_timeout_s: float = Field(5.0, gt=0)
 
 
 class MotionConfig(_Strict):
+    motors_enabled: bool = True
     walking_enabled: bool = False
     max_turn_deg: int = Field(90, ge=1, le=90)
     max_step_cm: int = Field(30, ge=5, le=30)

@@ -29,6 +29,9 @@ MESSAGES: Dict[str, Dict[str, str]] = {
     "need_stand": {"de": "Dafür muss ich erst aufstehen.", "en": "I need to stand up first."},
     "need_posture": {"de": "Dafür muss ich erst in die Haltung {posture}.",
                      "en": "I need to be in the {posture} posture first."},
+    "motors_off": {"de": "Ich kann mich gerade nicht bewegen.", "en": "I can't move right now."},
+    "perception_off": {"de": "Ich kann gerade nicht sehen, wer da ist.",
+                       "en": "I can't see who is here right now."},
     "walking_off": {"de": "Laufen ist gerade ausgeschaltet.", "en": "Walking is switched off right now."},
     "battery_low": {"de": "Mein Akku ist zu leer für Bewegungen.", "en": "My battery is too low to move."},
     "battery_dance": {"de": "Mein Akku ist zu leer zum Tanzen.", "en": "My battery is too low to dance."},
@@ -44,8 +47,22 @@ MESSAGES: Dict[str, Dict[str, str]] = {
     "apology": {"de": "Entschuldigung, mir fällt gerade keine Antwort ein.",
                 "en": "Sorry, I can't think of an answer right now."},
     "ready": {"de": "Ich bin bereit.", "en": "I'm ready."},
+    "enrol_look": {"de": "Bitte schau mich an.", "en": "Please look at me."},
+    "enrol_hint": {"de": "Schau mich bitte direkt an und halte still.",
+                   "en": "Please look straight at me and hold still."},
+    "enrol_done": {"de": "Hallo, {name}.", "en": "Hello, {name}."},
+    "notice": {"de": "Sag {wake} oder tippe mir vorne auf den Kopf. Danach höre ich kurz zu. "
+                     "Sprache wird nur lokal verarbeitet und nicht gespeichert. "
+                     "Gesichter erkenne ich nur bei Club-Mitgliedern mit Einwilligung.",
+               "en": "Say {wake} or tap the front of my head. Then I listen for a moment. "
+                     "Speech is processed locally and is not stored. "
+                     "I recognize faces only of club members who consented."},
+    "notice_tracking": {"de": "Meine Kamera merkt nur, dass jemand da ist, und ich drehe den Kopf zu dir.",
+                        "en": "My camera only notices that someone is there, and I turn my head to you."},
     "battery_critical": {"de": "Mein Akku ist fast leer. Ich setze mich hin und ruhe mich aus.",
                          "en": "My battery is almost empty. I'll sit down and rest."},
+    "battery_critical_still": {"de": "Mein Akku ist fast leer. Ich muss eine Pause machen.",
+                               "en": "My battery is almost empty. I need to take a break."},
 }
 
 

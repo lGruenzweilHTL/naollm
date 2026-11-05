@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import threading
+import wave
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from naollm.robot.adapter import (
@@ -16,6 +18,7 @@ from naollm.robot.adapter import (
     RobotInfo,
     RobotStatus,
     ThermalLevel,
+    WakeHit,
 )
 
 # Simulated durations in seconds, multiplied by `time_scale`.
@@ -25,6 +28,8 @@ POSTURE_S = 1.5
 WALK_M_PER_S = 0.1
 TURN_RAD_PER_S = 0.6
 SAY_S_PER_CHAR = 0.06
+STREAM_RATE = 16000
+STREAM_CHUNK_SAMPLES = 1365  # the size the real robot sends
 
 # Reference NAO 6 limits (min_rad, max_rad, max_velocity_rad_s) for the fake.
 _FAKE_LIMITS: Dict[str, Tuple[float, float, float]] = {
@@ -80,9 +85,22 @@ class FakeRobot:
         self.tracking = False
         self.balancer = False
         self.people = 0
-        self.faces: List[str] = []
+        self.faces: List[str] = []         # learned on the robot
+        self.seen_faces: List[str] = []    # recognized right now
+        self.learn_results: List[Any] = [] # one per learn_face: True, False or an exception
+        self.recognition = False
         self.limits: Dict[str, Tuple[float, float, float]] = dict(_FAKE_LIMITS)
         self.fail_on: Dict[str, Exception] = {}
+        self.autonomous_life_state = "disabled"
+        self.asr_languages: List[str] = ["German", "English"]
+        self.wake_words: List[str] = []
+        self.wake_threshold = 0.5
+        self.wake_language: Optional[str] = None
+        self.wake_enabled = False
+        self.stream_active = False
+        self.stream_audio = b""
+        self._stream_stop: Optional[threading.Event] = None
+        self.available = True
 
     # -- recording -----------------------------------------------------
     def _record(self, _action: str, **args: Any) -> None:
@@ -133,6 +151,20 @@ class FakeRobot:
 
     def info(self) -> RobotInfo:
         return RobotInfo(naoqi_version="2.8.7-fake", robot_id="fake-nao", name="FakeNAO")
+
+    def rest_problem(self, check_life: bool = True) -> Optional[str]:
+        if self.stiff:
+            return "the robot is awake or stiff"
+        if check_life and self.autonomous_life_state != "disabled":
+            return f"Autonomous Life is {self.autonomous_life_state}; run 'naollm init'"
+        return None
+
+    def autonomous_life(self) -> str:
+        return self.autonomous_life_state
+
+    def disable_autonomous_life(self) -> None:
+        self._record("disable_autonomous_life")
+        self.autonomous_life_state = "disabled"
 
     # -- Motion --------------------------------------------------------
     def run_behavior(self, path: str) -> Outcome:
@@ -215,18 +247,73 @@ class FakeRobot:
         self._record("set_eyes", rgb=rgb_hex)
         self.eyes = rgb_hex
 
-    # -- Audio (stubs until the audio change) --------------------------
+    # -- Audio ---------------------------------------------------------
+    def load_wav(self, path: str | Path) -> None:
+        """Play this 16 kHz mono 16-bit file into the next stream. Dry run only."""
+        try:
+            with wave.open(str(path), "rb") as w:
+                if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (STREAM_RATE, 1, 2):
+                    raise ValueError(f"{path}: need 16 kHz mono 16-bit, got {w.getframerate()} Hz, "
+                                     f"{w.getnchannels()} channels, {w.getsampwidth() * 8} bit")
+                self.stream_audio = w.readframes(w.getnframes())
+        except (OSError, EOFError, wave.Error) as err:
+            raise ValueError(f"cannot read {path}: {err}") from None
+
     def start_stream(self, on_chunk: Callable[[bytes], None]) -> None:
         self._record("start_stream")
+        self.stop_stream_quietly()
+        stop = threading.Event()
+        audio, self.stream_audio = self.stream_audio, b""
+        self._stream_stop = stop
+        self.stream_active = True
+        threading.Thread(target=self._feed_stream, args=(audio, on_chunk, stop), daemon=True).start()
+
+    def _feed_stream(self, audio: bytes, on_chunk: Callable[[bytes], None], stop: threading.Event) -> None:
+        """Sends the audio in the robot's chunk size, then silence until the stream stops."""
+        size = STREAM_CHUNK_SAMPLES * 2
+        delay = STREAM_CHUNK_SAMPLES / STREAM_RATE * self.time_scale
+        offset = 0
+        while not stop.wait(delay):
+            chunk = audio[offset:offset + size]
+            offset += size
+            on_chunk(chunk + b"\0" * (size - len(chunk)))
+
+    def stop_stream_quietly(self) -> None:
+        if self._stream_stop is not None:
+            self._stream_stop.set()
+            self._stream_stop = None
+        self.stream_active = False
 
     def stop_stream(self) -> None:
         self._record("stop_stream")
+        self.stop_stream_quietly()
 
-    def configure_wake_words(self, words: List[str], threshold: float) -> None:
-        self._record("configure_wake_words", words=list(words), threshold=threshold)
+    def configure_wake_words(self, words: List[str], threshold: float, language: str) -> None:
+        self._record("configure_wake_words", words=list(words), threshold=threshold, language=language)
+        if language not in self.asr_languages:
+            raise RuntimeError(f"ASR language not installed: {language}")
+        self.wake_words = list(words)
+        self.wake_threshold = threshold
+        self.wake_language = language
 
     def set_wake_enabled(self, enabled: bool) -> None:
         self._record("set_wake_enabled", enabled=enabled)
+        self.wake_enabled = enabled
+
+    def wake_languages(self) -> List[str]:
+        return list(self.asr_languages)
+
+    def play_listen_sound(self) -> None:
+        self._record("play_listen_sound")
+
+    def hear_wake_phrase(self, phrase: str, confidence: float) -> None:
+        """Simulate the on-robot engine hearing a phrase. Nothing arrives while it is paused."""
+        if not self.wake_enabled:
+            return
+        hit = WakeHit(phrase, confidence)
+        self.inject(EventKind.WAKE_CANDIDATE, hit)
+        if confidence >= self.wake_threshold:
+            self.inject(EventKind.WAKE_WORD, hit)
 
     # -- Events --------------------------------------------------------
     def subscribe(self, handler: Callable[[RobotEvent], None]) -> None:
@@ -273,16 +360,28 @@ class FakeRobot:
         self._record("set_tracking", enabled=enabled)
         self.tracking = enabled
 
+    def start(self, recognition: bool) -> None:
+        self._record("perception_start", recognition=recognition)
+        self.recognition = recognition
+
     def people_count(self) -> int:
         return self.people
 
     def recognized_names(self) -> List[str]:
+        return list(self.seen_faces) if self.recognition else []
+
+    def learned_names(self) -> List[str]:
+        self._record("learned_names")
         return list(self.faces)
 
     def learn_face(self, name: str) -> bool:
         self._record("learn_face", name=name)
-        self.faces.append(name)
-        return True
+        result = self.learn_results.pop(0) if self.learn_results else True
+        if isinstance(result, Exception):
+            raise result
+        if result:
+            self.faces.append(name)
+        return result
 
     def forget_face(self, name: str) -> bool:
         self._record("forget_face", name=name)
@@ -290,3 +389,8 @@ class FakeRobot:
             self.faces.remove(name)
             return True
         return False
+
+    def forget_all_faces(self) -> bool:
+        self._record("forget_all_faces")
+        self.faces.clear()
+        return True

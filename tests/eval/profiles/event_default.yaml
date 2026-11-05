@@ -1,6 +1,7 @@
 # Event configuration: walking off, age game off.
 event_mode: false   # eval prints details; the tool set is the same as at the event
 motion:
+  motors_enabled: true   # eval checks tool choice on the fake robot, whatever the base config says
   walking_enabled: false
 privacy:
   age_game_enabled: false

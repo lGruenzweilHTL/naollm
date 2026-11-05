@@ -17,14 +17,17 @@ class EStop:
     def steps(self) -> List[Tuple[str, Callable[[], object]]]:
         b = self.bridge
         motion = b.robot.motion
-        return [
-            ("set_stopped", lambda: b.state.force(State.STOPPED)),
-            ("cancel_turn", b.cancel_turn),
-            ("stop_speech", b.robot.speech.stop_speech),
+        moving = [
             ("stop_behaviors", motion.stop_all_behaviors),
             ("stop_move", motion.stop_move),
             ("balancer_off", lambda: motion.set_balancer(False)),
             ("crouch", lambda: motion.go_to_posture("Crouch")),
+        ] if b.motors_enabled else []
+        return [
+            ("set_stopped", lambda: b.state.force(State.STOPPED)),
+            ("cancel_turn", b.cancel_turn),
+            ("stop_speech", b.robot.speech.stop_speech),
+            *moving,
             ("eyes_red", b.set_status_eyes_red),
         ]
 
