@@ -148,7 +148,11 @@ naollm anim import export.py --name nodding           # convert a Choregraphe "e
 naollm eval --config config.yaml -v
 ```
 
-This runs `tests/eval/tool_calls.yaml`: 40 German and English prompts. Each case names a profile, `event_default` or `walking_on`, whose overlay from `tests/eval/profiles/` is merged into your config. The output shows the accuracy per profile. The target before the event is at least 90 % per profile.
+This runs `tests/eval/tool_calls.yaml`: 41 German and English prompts. Each case names a profile, `event_default` or `walking_on`, whose overlay from `tests/eval/profiles/` is merged into your config. The eval uses the fake robot, and the profiles switch the motors on, so it tests tool choice whatever your config says.
+
+While a case waits for the model, the terminal shows a spinner, the case number, the time spent and an ETA. Each finished case prints PASS or FAIL, the tool calls, and the model's reply. At the end, the output shows the accuracy per profile. The target before the event is at least 90 % per profile. The first case also pays the model's load time.
+
+A question about an ability, such as "Can you dance?", expects no tool: the robot should say yes and offer it. A request beyond the limits, such as walking ten metres, passes on any safe answer: no tool, or a call in the right direction. These cases use `any_of`, a list of expectations of which one must be met.
 
 ## Tests
 

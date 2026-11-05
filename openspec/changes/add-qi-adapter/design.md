@@ -86,6 +86,12 @@ Only a model this process loaded is released at exit, so a `naollm run` does not
 
 A failed load raises an alert and the bridge starts anyway, because an endpoint that is not Ollama has no native API and still answers chats. Setting `OLLAMA_KEEP_ALIVE` on the service was the alternative, but it pins every model forever and lives outside this repository. The cost of `-1`: if the laptop process dies without its `finally` block, the model stays in RAM until `model unload`, `ollama stop <model>` or an Ollama restart.
 
+### D13: The eval shows its progress and judges intent
+
+`naollm eval` printed nothing until all cases had run, which takes minutes against a local model. It now prints a live line while a case waits, and a result line with the reply when it finishes. The ETA is the mean time per case so far, times the cases left, so the first case shows none. Output that is not a terminal gets the result lines only, so a log file has no control characters.
+
+Two kinds of case rewarded the wrong behavior. "Kannst du tanzen?" and "Can you dance?" expected a dance, but a question about an ability should get an answer and an offer, and the robot moves only when asked. They now expect no tool, and "Please dance for us!" keeps an English dance request. The over-limit cases passed only when the model sent a value the gate rejects, so a model that explained its limits, or took one allowed step, failed. They now use `any_of`, which accepts no tool or a call in the right direction. The gate is deterministic and has its own tests, so the eval no longer needs to reach it with a rejected call.
+
 ## Risks / Trade-offs
 
 - **Wake word is unreliable** → Head tap and operator key work without it, and all three touch sensors passed. `ears test` tunes the threshold.

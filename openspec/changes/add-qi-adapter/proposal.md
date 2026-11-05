@@ -14,6 +14,7 @@ The bridge only runs against the fake robot, and `naollm run` without `--dry-run
 - Add English-only configuration: `config.example.yaml` targets this robot, and `robot.battery_reliable: false` hides the battery value, which this robot reports wrongly. German code stays, and returns through configuration once a language pack is installed.
 - Keep the LLM loaded: `naollm run` loads `llm.model` through Ollama with `keep_alive: -1` before it reports ready, and unloads it when the bridge exits. Add `model load`, `model unload` and `model status` console commands.
 - Make `gemma4:e4b` the default model in the code and in `config.example.yaml`. The laptop has 15 GiB, and `gemma4:e2b` stays the fallback for smaller machines.
+- Show `naollm eval` progress: a live line with a spinner and an ETA, and a result line with the model's reply for each case. Add `any_of` expectations, and fix the cases whose expectations rewarded the wrong behavior: "Can you dance?" now expects no tool, and over-limit walking and turning accept any safe answer.
 - Update SPEC.md to record the interim English and motors-off decisions.
 
 Out of scope, and blocked until the battery is replaced: behaviors, gestures, dances, keyframe playback, posture changes, head tracking, `ALAnimatedSpeech`, the `qipkg` deploy and `naollm deploy`. Face recognition is in the separate change `add-faces-consent`.
@@ -27,6 +28,7 @@ Out of scope, and blocked until the battery is replaced: behaviors, gestures, da
 - `voice-turn`: listening triggers, wake-word handling, end-of-utterance detection, speech to text and the path into the conversation loop.
 - `robot-init`: the motor-free `naollm init` command and its self-test.
 - `model-residency`: loading the Ollama model at start, keeping it loaded, and releasing it at exit.
+- `tool-eval`: how `naollm eval` shows its progress and judges a case.
 
 ### Modified Capabilities
 

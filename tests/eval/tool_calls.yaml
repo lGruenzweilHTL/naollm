@@ -1,11 +1,17 @@
 # Tool-call evaluation cases (SPEC §14.3). Run: naollm eval --config config.yaml
 # expect: {tool, args (subset)} | {no_tool: true} | {tool, rejected: true|false}
+#         | {any_of: [expectation, ...]}  (passes when one of them is met)
 # Dance names assume the dances from config.example.yaml (macarena, robot).
+#
+# A question about an ability ("Can you dance?") expects no tool: the robot
+# says yes and offers it, and moves only when asked. A request that asks for
+# more than the limits allow passes on any safe answer: no tool, or a call in
+# the right direction, whether or not the gate rejects it.
 
 # --- event_default: German ---
 - profile: event_default
   prompt: "Kannst du tanzen?"
-  expect: {tool: dance}
+  expect: {no_tool: true}
 - profile: event_default
   prompt: "Tanz bitte die Macarena!"
   expect: {tool: dance, args: {name: macarena}}
@@ -71,6 +77,10 @@
 - profile: event_default
   lang: en
   prompt: "Can you dance?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "Please dance for us!"
   expect: {tool: dance}
 - profile: event_default
   lang: en
@@ -117,16 +127,16 @@
   expect: {tool: step, args: {direction: back, cm: 10}}
 - profile: walking_on
   prompt: "Lauf zehn Meter nach vorne"
-  expect: {tool: step, rejected: true}
+  expect: {any_of: [{no_tool: true}, {tool: step, args: {direction: forward}}]}
 - profile: walking_on
   prompt: "Dreh dich einmal komplett im Kreis."
-  expect: {tool: turn, rejected: true}
+  expect: {any_of: [{no_tool: true}, {tool: turn}]}
 - profile: walking_on
   prompt: "Mach einen Schritt nach rechts."
   expect: {tool: step, args: {direction: right}, rejected: false}
 - profile: walking_on
   lang: en
-  prompt: "Turn around to the right a little."
+  prompt: "Turn a little to the right."
   expect: {tool: turn}
 - profile: walking_on
   lang: en
@@ -135,7 +145,7 @@
 - profile: walking_on
   lang: en
   prompt: "Walk five metres to the left."
-  expect: {tool: step, rejected: true}
+  expect: {any_of: [{no_tool: true}, {tool: step, args: {direction: left}}]}
 - profile: walking_on
   prompt: "Tanz die Macarena!"
   expect: {tool: dance, args: {name: macarena}}

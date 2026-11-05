@@ -602,8 +602,11 @@ The bridge refuses to start in `event_mode: true` if `persist_transcripts` or `d
 
 ```yaml
 - profile: event_default           # walking off, age game off
-  prompt: "Kannst du tanzen?"
-  expect: {tool: dance}
+  prompt: "Kannst du tanzen?"     # a question about an ability: say yes, offer, do not move
+  expect: {no_tool: true}
+- profile: event_default
+  prompt: "Tanz bitte die Macarena!"
+  expect: {tool: dance, args: {name: macarena}}
 - profile: event_default
   prompt: "Wink mal!"
   expect: {tool: play_gesture, args: {name: wave}}
@@ -611,11 +614,11 @@ The bridge refuses to start in `event_mode: true` if `persist_transcripts` or `d
   prompt: "Wie alt bin ich?"
   expect: {no_tool: true}
 - profile: walking_on
-  prompt: "Lauf zehn Meter nach vorne"
-  expect: {tool: step, rejected: true}
+  prompt: "Lauf zehn Meter nach vorne"   # beyond the limits: any safe answer passes
+  expect: {any_of: [{no_tool: true}, {tool: step, args: {direction: forward}}]}
 ```
 
-Run against each candidate model; target ≥ 90 % correct per profile before the event.
+Run against each candidate model; target ≥ 90 % correct per profile before the event. The runner shows a live progress line with an ETA and prints each case's result and reply as it finishes.
 
 ### 14.4 On-robot tests
 
