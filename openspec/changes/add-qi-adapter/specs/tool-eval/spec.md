@@ -9,7 +9,7 @@
 
 #### Scenario: Interrupted run
 - **WHEN** the operator presses Ctrl+C during a case
-- **THEN** the live line is cleared, the output says how many cases finished, and the exit code is 130
+- **THEN** the live line is cleared, the output says how many cases finished, a partial report follows, and the exit code is 130
 
 ### Requirement: Alternative expectations
 A case's `expect` SHALL accept `any_of`, a non-empty list of expectations, and the case SHALL pass when one of them is met. The safety gate SHALL run at most once per case. A case file with an empty or malformed `any_of` SHALL be refused with its case number.
@@ -24,3 +24,31 @@ A question about an ability, such as "Kannst du tanzen?" or "Can you dance?", SH
 #### Scenario: Ability question
 - **WHEN** the eval runs the case "Can you dance?"
 - **THEN** the case passes only if the model calls no tool
+
+### Requirement: Model warm-up and timeout
+Before the first case, `naollm eval` SHALL load the model through the Ollama native API unless it is already loaded or `--no-warmup` is given, and SHALL unload it at the end, also after Ctrl+C, only if it loaded it. Each request SHALL wait up to 120 s, or `--timeout`, in place of `llm.timeout_s`. If the endpoint is not Ollama, the eval SHALL say so and run the cases anyway.
+
+#### Scenario: Warm-up before the first case
+- **WHEN** the eval runs against Ollama with the model not loaded
+- **THEN** the output says the model loaded before the first result line, and says it was unloaded after the last
+
+### Requirement: Verbose trace
+With `-v`, each case SHALL print its prompt and expectation, stream its reasoning and its reply as they arrive, then print each tool call with its arguments, the result, and its timings, tokens and finish reason.
+
+#### Scenario: Case with reasoning and a tool call
+- **WHEN** a case streams reasoning, the text "Hi there!" and a `play_gesture` call, with `-v`
+- **THEN** the output shows a `thinking:` line, a `says: Hi there!` line, a `tool call: play_gesture` line with the arguments, and a timing line
+
+### Requirement: Timing report
+The final report SHALL show, over all finished cases, the mean, median, p90 and max of the response time, the time to the first token, to the first answer token (text or tool call), to the first text and to the first tool call, with the case count when a value is missing for some cases. It SHALL show the mean output and input tokens when the endpoint reports usage, a generation rate from the cases that streamed for 0.5 s or more, and how many cases reasoned, were cut off at `max_tokens`, came back empty or failed.
+
+#### Scenario: Cut-off reply
+- **WHEN** a case's reasoning uses all of `max_tokens` and no text or tool call follows
+- **THEN** the case fails with "empty reply, cut off at max_tokens", and the report counts it as cut off and empty
+
+### Requirement: Partial report
+When the operator presses Ctrl+C, the eval SHALL print the accuracy and timing report for the cases that finished, say that the target is not judged, and exit with code 130.
+
+#### Scenario: Interrupted after ten cases
+- **WHEN** the operator presses Ctrl+C during case 11 of 41
+- **THEN** the output says "partial report: 10 of 41 cases ran" and shows the accuracy and timings of those 10

@@ -30,7 +30,7 @@ Both changes are implemented and tested against the fake robot and `tests/qi_dou
 - `add-qi-adapter`: real adapter, motors-off mode, voice turn, `naollm init`. Open: task 4.8 (a voice turn on the robot).
 - `add-faces-consent`: perception, consent registry, `faces`, `notice`. Open: task 1.1 (data shapes with a person in view) and 5.3 (real enrolment, after the school has cleared it and consent exists).
 
-`naollm run` keeps the Ollama model loaded with `keep_alive: -1` and unloads it at exit (`add-qi-adapter` section 7, design D12). A hard kill leaves it loaded; run `ollama stop <model>` then. The default model is `gemma4:e4b`.
+`naollm run` keeps the Ollama model loaded with `keep_alive: -1` and unloads it at exit (`add-qi-adapter` section 7, design D12). A hard kill leaves it loaded; run `ollama stop <model>` then. The default model is `gemma4:e4b`, with `llm.reasoning_effort: none`. This laptop is CPU only (i5-1135G7). Measured: `gemma4:e4b` with thinking on took 39 to 59 s per turn, and often came back empty at 200 tokens; with thinking off it took about 6 s with a warm prompt cache, and up to 30 s cold. `llama3.2` and `qwen3:0.6b` are fast but pick tools badly. `gemma4:e2b` is not pulled, and the disk has about 3 GB free.
 
 The `FaceDetected` parsing follows the NAOqi docs and has not seen real data. Run `spike/spike.py --no-motion --faces 15` with a person in view, and compare.
 

@@ -92,6 +92,14 @@ A failed load raises an alert and the bridge starts anyway, because an endpoint 
 
 Two kinds of case rewarded the wrong behavior. "Kannst du tanzen?" and "Can you dance?" expected a dance, but a question about an ability should get an answer and an offer, and the robot moves only when asked. They now expect no tool, and "Please dance for us!" keeps an English dance request. The over-limit cases passed only when the model sent a value the gate rejects, so a model that explained its limits, or took one allowed step, failed. They now use `any_of`, which accepts no tool or a call in the right direction. The gate is deterministic and has its own tests, so the eval no longer needs to reach it with a rejected call.
 
+### D14: Thinking off, and an eval that measures it
+
+On this CPU-only laptop, `gemma4:e4b` with thinking on took 39 to 59 s per reply, and it often spent all 200 tokens of `max_tokens` on reasoning, so the reply came back empty. With thinking off, a warm reply took about 6 s. `llm.reasoning_effort` defaults to `none`. Through Ollama's `/v1`, only `reasoning_effort` turns thinking off; `think: false` is ignored there. `gemma4` knows only on and off, so the other levels all mean on. `null` leaves the field out for endpoints that reject it. Raising `max_tokens` was the alternative, but it makes every turn slower and does not stop a long think.
+
+The client now reports reasoning, the start of each tool call, the finish reason and token usage, through `stream_options.include_usage`. The loop ignores these events, so nothing changes for speech. The eval uses them for its timings. The time to the first answer token excludes reasoning, because that is when the robot can start to speak or move. Ollama sends a tool call in one piece, so the time to the first tool call is close to the response time, and a generation rate is only shown for output that streamed for at least 0.5 s.
+
+The eval waits 120 s per request, not the bridge's 20 s, because a cold prompt on this CPU can take longer than 20 s before the first token. It loads the model first, as `naollm run` does, so the first case measures a turn and not a load. A reply with no text and no tool fails every expectation, since the robot would stay silent, and that is what a cut-off thinking reply looks like.
+
 ## Risks / Trade-offs
 
 - **Wake word is unreliable** → Head tap and operator key work without it, and all three touch sensors passed. `ears test` tunes the threshold.

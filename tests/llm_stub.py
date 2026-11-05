@@ -51,12 +51,16 @@ class ScriptedClient:
 
 
 def sse_chunks(deltas: List[Dict[str, Any]]) -> bytes:
+    """A delta {"_finish": reason} ends the choice; {"_usage": {...}} sends a usage chunk."""
     out = []
     for i, delta in enumerate(deltas):
-        chunk = {
-            "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "stub",
-            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
-        }
+        chunk = {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "stub"}
+        if "_usage" in delta:
+            chunk.update(choices=[], usage=dict(delta["_usage"], total_tokens=sum(delta["_usage"].values())))
+        elif "_finish" in delta:
+            chunk["choices"] = [{"index": 0, "delta": {}, "finish_reason": delta["_finish"]}]
+        else:
+            chunk["choices"] = [{"index": 0, "delta": delta, "finish_reason": None}]
         out.append(f"data: {json.dumps(chunk)}\n\n")
     out.append("data: [DONE]\n\n")
     return "".join(out).encode()

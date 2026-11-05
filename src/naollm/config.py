@@ -49,6 +49,10 @@ class LLMConfig(_Strict):
     max_tokens: int = Field(200, ge=16, le=4096)
     timeout_s: float = Field(20.0, gt=0)
     max_tool_rounds: int = Field(3, ge=1, le=10)
+    # Sent as `reasoning_effort`. "none" turns thinking off, which a small
+    # model on a CPU needs: thinking costs seconds and can use up max_tokens.
+    # null leaves the field out, for endpoints that do not accept it.
+    reasoning_effort: Optional[Literal["none", "low", "medium", "high"]] = "none"
 
 
 class ConversationConfig(_Strict):

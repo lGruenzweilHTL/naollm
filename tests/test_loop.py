@@ -242,3 +242,30 @@ def test_debug_log_keeps_text_outside_event_mode(bridge):
     run(ConversationLoop(bridge, client), "Frage")
     rendered = "\n".join(e.render() for e in bridge.log.entries())
     assert "Frage" in rendered and "Antwort." in rendered
+
+
+def test_reasoning_is_never_spoken_or_kept(bridge, robot):
+    from naollm.llm.client import StreamEvent
+
+    class Thinking:
+        def __init__(self):
+            self.requests = []
+
+        async def stream(self, messages, tools):
+            self.requests.append([dict(m) for m in messages])
+            if len(self.requests) == 1:
+                yield StreamEvent("reasoning", text="Geheime Gedanken über das Tanzen.")
+                yield StreamEvent("text", text="Klar!")
+                yield StreamEvent("tool", text="dance")
+                yield StreamEvent("done", calls=[call("dance", {"name": "macarena"})], finish="tool_calls")
+            else:
+                yield StreamEvent("reasoning", text="Noch mehr Gedanken.")
+                yield StreamEvent("done", finish="stop")
+
+    client = Thinking()
+    loop = ConversationLoop(bridge, client)
+    run(loop, "Tanz mal!")
+    assert spoken(robot) == ["Klar!"]
+    assert "run_behavior" in robot.action_names()
+    assert not any("Gedanken" in str(m.get("content")) for m in client.requests[1])
+    assert loop.history and not any("Gedanken" in part for turn in loop.history for part in turn)

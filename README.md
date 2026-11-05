@@ -145,14 +145,15 @@ naollm anim import export.py --name nodding           # convert a Choregraphe "e
 ## Tool-call evaluation
 
 ```bash
-naollm eval --config config.yaml -v
+naollm eval --config config.yaml        # progress line and one result line per case
+naollm eval --config config.yaml -v     # also the model's reasoning, reply, tool calls and timings per case
 ```
 
 This runs `tests/eval/tool_calls.yaml`: 41 German and English prompts. Each case names a profile, `event_default` or `walking_on`, whose overlay from `tests/eval/profiles/` is merged into your config. The eval uses the fake robot, and the profiles switch the motors on, so it tests tool choice whatever your config says.
 
-While a case waits for the model, the terminal shows a spinner, the case number, the time spent and an ETA. Each finished case prints PASS or FAIL, the tool calls, and the model's reply. At the end, the output shows the accuracy per profile. The target before the event is at least 90 % per profile. The first case also pays the model's load time.
+Before the first case, the eval loads the model into Ollama and unloads it at the end, unless it was already loaded. Each request may take 120 s, because this laptop runs the model on its CPU; change it with `--timeout`, and skip the load with `--no-warmup`. While a case waits for the model, the terminal shows a spinner, the case number, the phase (waiting, thinking, answering), the time spent and an ETA. Each finished case prints PASS or FAIL, the tool calls, and the model's reply. With `-v`, the reasoning and the reply stream as they arrive, followed by the tool calls with arguments and the case's timings.\n\nThe final report shows the accuracy per profile, then the timings: mean, median, p90 and max of the response time, the first token, the first answer token (the first text or tool call, so not reasoning), the first text and the first tool call. It also shows the tokens per case, the generation rate, and how many cases reasoned, were cut off at `max_tokens`, came back empty or failed. The target before the event is at least 90 % per profile. Ctrl+C stops the run and prints the same report for the cases that finished.
 
-A question about an ability, such as "Can you dance?", expects no tool: the robot should say yes and offer it. A request beyond the limits, such as walking ten metres, passes on any safe answer: no tool, or a call in the right direction. These cases use `any_of`, a list of expectations of which one must be met.
+A question about an ability, such as "Can you dance?", expects no tool: the robot should say yes and offer it. A request beyond the limits, such as walking ten metres, passes on any safe answer: no tool, or a call in the right direction. These cases use `any_of`, a list of expectations of which one must be met. A reply with no text and no tool always fails, because the robot would say nothing.\n\n`llm.reasoning_effort` is `none` by default, which turns thinking off. On this CPU, thinking adds 10 to 25 s per turn and can use up all of `max_tokens`, so the reply comes back empty. `gemma4` knows only on or off, so `low`, `medium` and `high` all switch it on. Set it to `null` for an endpoint that does not accept the field.
 
 ## Tests
 

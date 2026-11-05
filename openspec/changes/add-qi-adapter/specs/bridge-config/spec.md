@@ -42,3 +42,14 @@ The configuration SHALL accept `audio.no_speech_timeout_s` as a positive number 
 #### Scenario: Existing German file
 - **WHEN** a configuration sets only `robot.url`
 - **THEN** the language defaults are still German and motors are enabled
+
+### Requirement: Reasoning effort key
+The configuration SHALL accept `llm.reasoning_effort` as `none`, `low`, `medium`, `high` or `null`, with the default `none`. The client SHALL send it as `reasoning_effort` with every chat request, and SHALL leave the field out when it is `null`.
+
+#### Scenario: Thinking off by default
+- **WHEN** the configuration does not set `llm.reasoning_effort`
+- **THEN** every chat request carries `reasoning_effort: "none"`
+
+#### Scenario: Endpoint without the field
+- **WHEN** `llm.reasoning_effort` is `null`
+- **THEN** chat requests contain no `reasoning_effort` field

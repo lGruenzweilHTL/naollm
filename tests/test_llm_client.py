@@ -100,3 +100,36 @@ def test_connection_refused_raises_unavailable():
     client = OpenAIChatClient(LLMConfig(base_url="http://127.0.0.1:9/v1", timeout_s=2))
     with pytest.raises(LLMUnavailable):
         collect(client)
+
+
+def test_reasoning_tool_start_finish_and_usage_events():
+    deltas = [
+        {"role": "assistant", "reasoning": "Let me think."},
+        {"content": "Sure!"},
+        {"tool_calls": [{"id": "c1", "index": 0, "type": "function",
+                         "function": {"name": "dance", "arguments": ""}}]},
+        {"tool_calls": [{"index": 0, "function": {"arguments": '{"name":"robot"}'}}]},
+        {"_finish": "tool_calls"},
+        {"_usage": {"prompt_tokens": 12, "completion_tokens": 7}},
+    ]
+    with StubServer(deltas) as server:
+        events = collect(OpenAIChatClient(LLMConfig(base_url=server.base_url, timeout_s=5)))
+        body = server.bodies[0]
+    assert [(e.kind, e.text) for e in events[:-1]] == [("reasoning", "Let me think."), ("text", "Sure!"),
+                                                       ("tool", "dance")]
+    done = events[-1]
+    assert done.finish == "tool_calls" and done.usage == {"prompt_tokens": 12, "completion_tokens": 7}
+    assert [(c.name, c.arguments) for c in done.calls] == [("dance", '{"name":"robot"}')]
+    assert body["reasoning_effort"] == "none" and body["stream_options"] == {"include_usage": True}
+
+
+def test_reasoning_content_field_and_unset_effort():
+    with StubServer([{"reasoning_content": "hm"}, {"content": "Ja."}]) as server:
+        events = collect(OpenAIChatClient(LLMConfig(base_url=server.base_url, timeout_s=5, reasoning_effort=None)))
+        body = server.bodies[0]
+    assert [e.kind for e in events] == ["reasoning", "text", "done"]
+    assert "reasoning_effort" not in body
+
+
+def test_reasoning_effort_defaults_to_none():
+    assert LLMConfig().reasoning_effort == "none"

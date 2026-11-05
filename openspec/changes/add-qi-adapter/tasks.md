@@ -64,3 +64,10 @@
 - [x] 8.2 Add `any_of` expectations, running the gate at most once per case, with tests
 - [x] 8.3 Review the eval cases: ability questions expect no tool, and over-limit requests accept any safe answer
 - [x] 8.4 Update README and SPEC, and run the full test suite
+
+## 9. Reasoning and eval metrics
+
+- [x] 9.1 Add `llm.reasoning_effort` with the default `none`, send it with chat requests, and report reasoning, tool-call starts, finish reason and usage from the client, with tests
+- [x] 9.2 Load the model before the first eval case, release it at the end, and wait 120 s per request, with `--timeout` and `--no-warmup`, with tests against a stub Ollama
+- [x] 9.3 Add the verbose trace, the timing report, the empty-reply rule and the partial report on Ctrl+C, with tests
+- [x] 9.4 Update README, SPEC and CONTINUATION, check against the local Ollama, and run the full test suite

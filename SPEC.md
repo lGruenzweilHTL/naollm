@@ -287,7 +287,7 @@ Stop behaviors and motion → `go_to_posture("Crouch")` → `rest()` → unsubsc
 ### 7.1 Client
 
 - OpenAI-compatible `/v1/chat/completions` with `tools` and `tool_choice: "auto"`.
-- Config: `base_url`, `api_key`, `model`, `temperature` (default 0.4), `max_tokens` (default 200), `timeout_s` (default 20).
+- Config: `base_url`, `api_key`, `model`, `temperature` (default 0.4), `max_tokens` (default 200), `timeout_s` (default 20), `reasoning_effort` (default `none`, which turns thinking off; `null` leaves the field out). Reasoning text is never spoken.
 - Model residency (Ollama only): `naollm run` loads `model` through the native `POST /api/generate` with `keep_alive: -1` before it reports ready, sends `keep_alive: -1` with chat requests while it holds the model, and unloads it with `keep_alive: 0` on every exit path. A failed load raises an alert, and the bridge starts anyway.
 - Streaming enabled. Text deltas are buffered into sentences and spoken one at a time. Tool-call deltas are accumulated until complete.
 
@@ -618,7 +618,7 @@ The bridge refuses to start in `event_mode: true` if `persist_transcripts` or `d
   expect: {any_of: [{no_tool: true}, {tool: step, args: {direction: forward}}]}
 ```
 
-Run against each candidate model; target ≥ 90 % correct per profile before the event. The runner shows a live progress line with an ETA and prints each case's result and reply as it finishes.
+Run against each candidate model; target ≥ 90 % correct per profile before the event. The runner loads the model first, waits up to 120 s per request, shows a live progress line with an ETA, and prints each case's result and reply as it finishes; `-v` adds the reasoning, tool calls and timings. The final report adds response time, time to first token, to first answer token and to first tool call, tokens, and counts of reasoning, cut-off, empty and failed replies. An empty reply always fails. Ctrl+C prints the report for the finished cases.
 
 ### 14.4 On-robot tests
 

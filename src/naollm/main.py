@@ -53,7 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("cases", nargs="?", default="tests/eval/tool_calls.yaml")
     ev.add_argument("--config", default="config.yaml")
     ev.add_argument("--profiles", default=None, help="profile overlay directory")
-    ev.add_argument("--verbose", "-v", action="store_true")
+    ev.add_argument("--verbose", "-v", action="store_true",
+                    help="stream each case's reasoning and reply, then its tool calls and timings")
+    ev.add_argument("--timeout", type=float, default=None,
+                    help="seconds to wait per request and between streamed chunks (default 120)")
+    ev.add_argument("--no-warmup", action="store_true", help="do not load the model before the first case")
     return parser
 
 
