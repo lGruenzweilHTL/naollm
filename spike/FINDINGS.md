@@ -71,7 +71,7 @@ Current status, from both runs:
 1. NAOqi version, and the Python version the `qi` wheel supports: 2.8.5.11; Python 3.12 with `qi` 3.1.5.
 2. ~~Languages~~ (resolved: German + English). **This now conflicts with the robot; see below.**
 3. Installed TTS languages / voices: Japanese, Chinese, English. No German. Voices not listed.
-4. Laptop RAM (`gemma4:e2b` or `e4b`): 15 GiB. Model choice not decided.
+4. Laptop RAM (`gemma4:e2b` or `e4b`): 15 GiB. Decided later: `gemma4:e4b` is the default.
 
 ## Details for the real adapter
 

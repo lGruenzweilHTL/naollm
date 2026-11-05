@@ -79,7 +79,7 @@ def test_stream_against_stub_endpoint(deltas, expected_text, expected_calls):
     done = events[-1]
     assert done.kind == "done"
     assert [(c.name, c.arguments) for c in done.calls] == expected_calls
-    assert body["stream"] is True and body["tool_choice"] == "auto" and body["model"] == "gemma4:e2b"
+    assert body["stream"] is True and body["tool_choice"] == "auto" and body["model"] == "gemma4:e4b"
 
 
 def test_no_tools_means_no_tool_choice():

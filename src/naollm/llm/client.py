@@ -78,10 +78,11 @@ class ToolCallAccumulator:
 
 
 class OpenAIChatClient:
-    def __init__(self, cfg: LLMConfig) -> None:
+    def __init__(self, cfg: LLMConfig, residency: Any = None) -> None:
         from openai import AsyncOpenAI
 
         self.cfg = cfg
+        self.residency = residency  # a ModelResidency, or None
         self._client = AsyncOpenAI(base_url=cfg.base_url, api_key=cfg.api_key,
                                    timeout=cfg.timeout_s, max_retries=0)
 
@@ -99,6 +100,8 @@ class OpenAIChatClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        if self.residency is not None and self.residency.held:
+            kwargs["extra_body"] = {"keep_alive": -1}  # Ollama: do not unload the model we hold
         timeout = self.cfg.timeout_s
         acc = ToolCallAccumulator()
         try:

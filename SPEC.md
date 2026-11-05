@@ -35,7 +35,7 @@ The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. Th
 1. NAO answers spoken questions in natural language, with automatic speaking gestures.
 2. The LLM can trigger robot actions through **tool calls**: gestures, dances, posture, head direction, small turns/steps, eye colour, status queries.
 3. Everything runs **locally**: robot + one laptop + own router. No cloud services required.
-4. Any **OpenAI-compatible chat-completions endpoint** works (default: Ollama on the laptop with `gemma4:e2b`).
+4. Any **OpenAI-compatible chat-completions endpoint** works (default: Ollama on the laptop with `gemma4:e4b`).
 5. Custom animations are authored in **Choregraphe** or as **keyframe data files** (§19) and triggered by name from the bridge.
 6. A fresh robot is set up with one command (`naollm init`, §20).
 7. Safe by construction: the LLM chooses *what*, deterministic code decides *whether* and *how far*.
@@ -57,7 +57,7 @@ The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. Th
 ```
 ┌──────────────────────┐   qi / TCP 9559   ┌─────────────────────────────┐   HTTP (localhost)   ┌──────────────┐
 │ NAO 6 (NAOqi 2.8)    │◄─────────────────►│ Bridge (laptop, Python 3)   │◄────────────────────►│ Ollama       │
-│ - TTS / animated     │                   │ - audio in + STT            │  OpenAI-compatible   │ gemma4:e2b   │
+│ - TTS / animated     │                   │ - audio in + STT            │  OpenAI-compatible   │ gemma4:e4b   │
 │   speech             │                   │ - conversation loop         │  /v1/chat/completions│ (or any      │
 │ - motors / posture   │                   │ - tool registry             │                      │  compatible) │
 │ - installed          │                   │ - SAFETY GATE               │                      └──────────────┘
@@ -93,7 +93,7 @@ The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. Th
 | Item | Requirement |
 | --- | --- |
 | Robot | NAO 6, NAOqi 2.8.x (check exact version in phase 0), charged + charger on site |
-| Laptop | ≥ 16 GB RAM recommended (gemma4:e2b: 8 GB minimum), Linux/macOS/Windows |
+| Laptop | ≥ 16 GB RAM recommended (default gemma4:e4b is a 6.6 GB model; gemma4:e2b: 8 GB minimum), Linux/macOS/Windows |
 | Router | Own small Wi-Fi router; robot and laptop on the same LAN. School Wi-Fi often blocks device-to-device traffic. |
 | Laptop ↔ router | Ethernet preferred |
 | Microphone | NAO's own microphones (front mic) from v1 |
@@ -109,7 +109,7 @@ The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. Th
 | Bridge language | Python 3 (version determined by available `qi` wheel) | |
 | Robot API | `qi` (libqi Python bindings, `pip install qi`) | **Phase 0 must verify** Python 3 ↔ NAOqi 2.8 compatibility. Fallbacks in §13. |
 | LLM client | `openai` Python SDK with configurable `base_url` | Ollama: `http://localhost:11434/v1`, api_key `"ollama"` |
-| Default model | `gemma4:e2b` via Ollama ≥ 0.20 | Swappable via config. |
+| Default model | `gemma4:e4b` via Ollama ≥ 0.20 | Swappable via config. `gemma4:e2b` is the fallback for laptops with 8 GB. |
 | STT | `faster-whisper` (model `small` or `base`) on the laptop | Optional experiment: Gemma 4 E2B audio input. |
 | Config | YAML + pydantic validation | |
 | Admin CLI | `prompt_toolkit` (command prompt + global hotkeys) + `rich` (status output) | Local only; see §18. |
@@ -288,6 +288,7 @@ Stop behaviors and motion → `go_to_posture("Crouch")` → `rest()` → unsubsc
 
 - OpenAI-compatible `/v1/chat/completions` with `tools` and `tool_choice: "auto"`.
 - Config: `base_url`, `api_key`, `model`, `temperature` (default 0.4), `max_tokens` (default 200), `timeout_s` (default 20).
+- Model residency (Ollama only): `naollm run` loads `model` through the native `POST /api/generate` with `keep_alive: -1` before it reports ready, sends `keep_alive: -1` with chat requests while it holds the model, and unloads it with `keep_alive: 0` on every exit path. A failed load raises an alert, and the bridge starts anyway.
 - Streaming enabled. Text deltas are buffered into sentences and spoken one at a time. Tool-call deltas are accumulated until complete.
 
 ### 7.2 Turn loop
@@ -574,7 +575,7 @@ The bridge refuses to start in `event_mode: true` if `persist_transcripts` or `d
 | Risk | Fallback |
 | --- | --- |
 | Python 3 `qi` cannot talk to NAOqi 2.8 | (a) small Python 2.7 shim process using the official SDK, talking to the Python 3 bridge over a local socket/JSON-RPC; (b) `naoqi_driver2` (ROS 2). The `RobotAdapter` interface stays the same. |
-| Small model makes poor tool choices | Fewer tools, better descriptions, eval set (§14.3), or switch to `gemma4:e4b` if RAM allows |
+| Small model makes poor tool choices | Fewer tools, better descriptions, eval set (§14.3), or a larger model if RAM allows |
 | Latency feels slow | Sentence streaming, `think` gesture + yellow eyes while waiting, shorter `max_tokens` |
 | Noisy hall breaks STT or wake word | Front head tap / operator key instead of wake word, speak close to NAO, restrict languages to de/en; last resort: USB close-talk mic on the laptop |
 | Vendor downloads disappear | Mirror SDK, Choregraphe, docs and NAOqi image locally now |
@@ -633,7 +634,7 @@ robot:
 llm:
   base_url: http://localhost:11434/v1
   api_key: ollama
-  model: gemma4:e2b
+  model: gemma4:e4b
   temperature: 0.4
   max_tokens: 200
   timeout_s: 20
@@ -701,7 +702,7 @@ event_mode: true
 1. Exact NAOqi version on the robot, and which Python version the `qi` wheel supports.
 2. ~~Showcase language(s): German only, or German + English?~~ Resolved: German + English (§11.1).
 3. Which German voice packs are installed on the robot?
-4. Laptop model and RAM: `gemma4:e2b` or `e4b`?
+4. ~~Laptop model and RAM: `gemma4:e2b` or `e4b`?~~ Resolved: `gemma4:e4b` on a 15 GiB laptop.
 5. Does the school require its own data-protection sign-off for the event?
 6. Which club members want face enrolment, and who collects the consent forms?
 7. How long is the showcase (affects heat/battery planning and spare charging time)?
@@ -779,7 +780,8 @@ Limitation (documented in the README): if the laptop crashes hard or loses power
 | `faces delete --all` | Forget all faces; requires typing `DELETE` to confirm |
 | `notice` | Robot speaks the privacy notice (§12.3) |
 | `reconnect` | Reconnect to the robot after a network drop |
-| `quit` | Safe shutdown (§6.4) and exit |
+| `model load` / `model unload` / `model status` | Load the LLM into Ollama and keep it loaded until exit, release it, or show whether it is loaded. `naollm run` loads it at start and releases it at exit; `unload` is refused during a turn. |
+| `quit` | Safe shutdown (§6.4) and exit, releasing the model if this bridge loaded it |
 
 ### 18.5 Manual tools go through the gate
 

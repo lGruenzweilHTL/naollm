@@ -91,6 +91,7 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
     from naollm.bridge import Bridge, RobotNotAtRest
     from naollm.llm.client import OpenAIChatClient
     from naollm.llm.loop import ConversationLoop
+    from naollm.llm.residency import ModelResidency, ModelResidencyError, in_daemon_thread
     from naollm.robot.adapter import RobotOffline
     from naollm.robot.fake_adapter import FakeRobot
     from naollm.robot.qi_adapter import QiRobot, QiUnavailable, RobotConnectionError
@@ -114,7 +115,8 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
     if warning:
         bridge.log.log("alert", warning)
 
-    client = OpenAIChatClient(config.llm) if mode == "run" else None
+    residency = ModelResidency(config.llm)
+    client = OpenAIChatClient(config.llm, residency) if mode == "run" else None
     conversation = ConversationLoop(bridge, client) if client else None
     stt = SpeechToText(config.stt) if conversation is not None else None
     listener = Listener(bridge, conversation, stt)
@@ -122,7 +124,7 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
     dry_dir = tempfile.TemporaryDirectory(prefix="naollm-dry-run-") if dry_run else None
     registry = ConsentRegistry(Path(dry_dir.name) / "consent.json" if dry_dir else consent_path or DEFAULT_PATH)
     commands = Commands(bridge, mode, out=print, confirm=None, conversation=conversation,  # type: ignore[arg-type]
-                        config_path=config_path, listener=listener)
+                        config_path=config_path, listener=listener, model=residency)
     faces = Faces(bridge, registry, commands, listener)
     commands.faces = faces
     console = Console(bridge, commands, interactive=interactive)
@@ -138,6 +140,24 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
             await asyncio.sleep(REST_POLL_S)
             await asyncio.to_thread(bridge.rest_tick)
 
+    async def warm_model() -> None:
+        bridge.log.log("llm", f"loading model {config.llm.model} (kept loaded until exit)")
+        try:
+            await in_daemon_thread(residency.load)
+        except ModelResidencyError as err:
+            bridge.log.log("alert", f"model warm-up failed: {err}. The first turn will be slower")
+            return
+        bridge.log.log("llm", f"model {config.llm.model} loaded")
+
+    async def release_model() -> None:
+        if not residency.held:
+            return
+        try:
+            await asyncio.to_thread(residency.unload)
+            print(f"model {config.llm.model} unloaded", flush=True)
+        except ModelResidencyError as err:
+            print(f"model unload failed: {err}", file=sys.stderr, flush=True)
+
     monitors: List[asyncio.Task] = []
     reason = "exception"
     try:
@@ -147,8 +167,11 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
             print(f"Refusing to start: {err}", file=sys.stderr)
             bridge.mark_not_started()
             return 2
-        # A dry run loads the model at the first `listen`, so prompt tuning needs no model download.
+        # A dry run loads the speech model at the first `listen`, so prompt tuning needs no download.
+        warm = asyncio.get_running_loop().create_task(warm_model()) if mode == "run" else None
         await listener.prepare(load_model=not dry_run)
+        if warm is not None:
+            await warm
         bridge.greet()
         loop = asyncio.get_running_loop()
         monitors = [loop.create_task(idle_monitor()), loop.create_task(rest_monitor())]
@@ -161,6 +184,7 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
         for monitor in monitors:
             monitor.cancel()
         bridge.shutdown()
+        await release_model()
         if client is not None:
             await client.close()
         if dry_dir is not None:

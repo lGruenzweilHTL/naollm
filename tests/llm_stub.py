@@ -65,16 +65,41 @@ def sse_chunks(deltas: List[Dict[str, Any]]) -> bytes:
 class StubServer:
     """Minimal OpenAI-compatible streaming endpoint on 127.0.0.1."""
 
-    def __init__(self, deltas: List[Dict[str, Any]], delay_s: float = 0.0) -> None:
+    def __init__(self, deltas: List[Dict[str, Any]], delay_s: float = 0.0, ollama: bool = False) -> None:
         self.deltas = deltas
         self.delay_s = delay_s
-        self.bodies: List[Dict[str, Any]] = []
+        self.bodies: List[Dict[str, Any]] = []   # chat requests
+        self.native: List[Dict[str, Any]] = []   # Ollama /api/generate requests
+        self.ollama = ollama                     # False: answer /api/* with 404, like other servers
+        self.loaded = False
         stub = self
 
         class Handler(BaseHTTPRequestHandler):
+            def _json(self, code, data):
+                body = json.dumps(data).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):  # noqa: N802
+                if not stub.ollama or self.path != "/api/ps":
+                    return self._json(404, {"error": "not found"})
+                models = [{"name": "stub", "model": "stub", "expires_at": "2318-01-01T00:00:00Z"}] if stub.loaded else []
+                self._json(200, {"models": models})
+
             def do_POST(self):  # noqa: N802
                 length = int(self.headers.get("Content-Length", 0))
-                stub.bodies.append(json.loads(self.rfile.read(length)))
+                data = json.loads(self.rfile.read(length))
+                if self.path.startswith("/api/"):
+                    if not stub.ollama or self.path != "/api/generate":
+                        return self._json(404, {"error": "not found"})
+                    stub.native.append(data)
+                    stub.loaded = data.get("keep_alive") != 0
+                    return self._json(200, {"model": data["model"], "done": True,
+                                            "done_reason": "load" if stub.loaded else "unload"})
+                stub.bodies.append(data)
                 if stub.delay_s:
                     threading.Event().wait(stub.delay_s)
                 body = sse_chunks(stub.deltas)

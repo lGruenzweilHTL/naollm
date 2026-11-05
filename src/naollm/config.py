@@ -44,7 +44,7 @@ class RobotConfig(_Strict):
 class LLMConfig(_Strict):
     base_url: str = "http://localhost:11434/v1"
     api_key: str = "ollama"
-    model: str = "gemma4:e2b"
+    model: str = "gemma4:e4b"
     temperature: float = Field(0.4, ge=0.0, le=2.0)
     max_tokens: int = Field(200, ge=16, le=4096)
     timeout_s: float = Field(20.0, gt=0)

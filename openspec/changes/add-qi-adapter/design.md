@@ -78,6 +78,14 @@ SPEC §5 lists `audio/robot_stream.py`, but SPEC §6.1 keeps transport code insi
 
 `deploy/init.py` and `deploy/selftest.py` use the same adapter and allowlist. The self-test reads touch events directly, not through `EventWatcher`, so touching the middle sensor during the test does not trigger the emergency stop. The SPEC's SSH, package deploy, Stand and gesture steps and `--name` are left out, since they need motors, `qipkg` or an untested robot setting.
 
+### D12: The model stays loaded while the bridge runs
+
+Ollama unloads a model 5 minutes after its last request, so the first turn after a quiet spell at the booth paid the load time. `naollm run` now loads `llm.model` with `POST /api/generate` and `keep_alive: -1` before it reports ready, in parallel with the speech model, and every exit path in `run_app` unloads it with `keep_alive: 0`. The native API root is `llm.base_url` without its `/v1`. While the bridge holds the model, chat requests also carry `keep_alive: -1`. On Ollama 0.40.14 a pinned model stays loaded through plain `/v1` requests as well, so this is a second guard, not the only one.
+
+Only a model this process loaded is released at exit, so a `naollm run` does not unload a model that somebody else pinned. `model unload` is the explicit way to release any model. `naollm admin` loads nothing at start, because it has no LLM, but its `model` commands work, so the operator can warm the model before switching to `run`.
+
+A failed load raises an alert and the bridge starts anyway, because an endpoint that is not Ollama has no native API and still answers chats. Setting `OLLAMA_KEEP_ALIVE` on the service was the alternative, but it pins every model forever and lives outside this repository. The cost of `-1`: if the laptop process dies without its `finally` block, the model stays in RAM until `model unload`, `ollama stop <model>` or an Ollama restart.
+
 ## Risks / Trade-offs
 
 - **Wake word is unreliable** → Head tap and operator key work without it, and all three touch sensors passed. `ears test` tunes the threshold.

@@ -14,7 +14,7 @@ robot:
 llm:
   base_url: http://localhost:11434/v1
   api_key: ollama
-  model: gemma4:e2b
+  model: gemma4:e4b
   temperature: 0.4
   max_tokens: 200
   timeout_s: 20

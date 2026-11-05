@@ -50,3 +50,10 @@
 - [x] 6.3 Update `SPEC.md` for interim English, motors off, `no_speech_timeout_s`, the VAD choice and the dropped `robot_stream.py`
 - [x] 6.4 Update `README.md` with real-robot setup and the no-motors warning, and update `CONTINUATION.md`, which still says the spike has not run
 - [x] 6.5 Run the full test suite and report the results
+
+## 7. Model residency
+
+- [x] 7.1 Implement `llm/residency.py` with load, unload and status over the Ollama native API, with tests against a stub server
+- [x] 7.2 Warm the model at `naollm run` start, release it on every exit, and send `keep_alive` with chat requests while held, with tests for failure and admin mode
+- [x] 7.3 Add `model load|unload|status`, with tests for refusal during a turn
+- [x] 7.4 Update README, SPEC and CONTINUATION, and run the full test suite

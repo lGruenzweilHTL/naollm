@@ -1,6 +1,6 @@
 # naollm
 
-A local bridge that lets a NAO 6 robot hold spoken conversations through a local LLM (any OpenAI-compatible endpoint, default Ollama with `gemma4:e2b`) and move through tool calls that a safety gate checks. It was built for a robotics club showcase at school. The full design is in [`SPEC.md`](SPEC.md).
+A local bridge that lets a NAO 6 robot hold spoken conversations through a local LLM (any OpenAI-compatible endpoint, default Ollama with `gemma4:e4b`) and move through tool calls that a safety gate checks. It was built for a robotics club showcase at school. The full design is in [`SPEC.md`](SPEC.md).
 
 **Current state:** the bridge talks to the real robot in English, with motors off. Behaviors, gestures, dances, postures, head tracking and `naollm deploy` wait for a new battery and run only on the fake robot, or not at all. See [Real robot](#real-robot).
 
@@ -26,7 +26,7 @@ pip install -e '.[dev,robot,voice]'   # robot: qi; voice: faster-whisper and web
 To use local Ollama:
 
 ```bash
-ollama pull gemma4:e2b
+ollama pull gemma4:e4b
 ```
 
 ## Try it without the robot
@@ -60,6 +60,8 @@ A middle or rear head touch runs the emergency stop on purpose. Type `resume` to
 
 The wake phrase is weak on this robot: it scored 0.43 and 0.44 in the spike. Run `ears test` to see the confidences and tune `audio.wake_threshold` on site. The head tap and the key do not depend on it.
 
+`naollm run` loads `llm.model` into Ollama before it says ready, and keeps it loaded with `keep_alive: -1`, so the first turn after a quiet spell is not slow. It unloads the model when the bridge exits. If the laptop process is killed hard, the model stays in RAM until `model unload`, `ollama stop <model>` or an Ollama restart. `naollm admin` loads nothing at start. If the endpoint is not Ollama, the bridge shows an alert and starts anyway.
+
 If `faster-whisper` or `webrtcvad-wheels` is missing, or the speech model cannot load, the bridge still starts with typed `chat` and shows an alert.
 
 ## Operator console
@@ -76,6 +78,7 @@ Type `help` in the console for the full list.
 | `listen [--wav <file>]` | Start listening; `--wav` only in a dry run |
 | `ears on\|off`, `ears test` | Wake word on or off, or show every recognized phrase and confidence for 30 s |
 | `reconnect` | Connect again after a network drop; then type `resume` |
+| `model load\|unload\|status` | Keep the LLM loaded in Ollama until exit, release it now, or show whether it is loaded (`unload` is refused during a turn) |
 | `faces list`, `faces enroll <name>`, `faces delete <name>`, `faces delete --all` | Enrolled faces and their consent records, see [Faces and privacy](#faces-and-privacy) |
 | `notice` | The robot speaks the privacy notice (not during a turn) |
 | `llm on\|off`, `reset`, `chat` | Pause the conversation, start a new visitor, send typed text |

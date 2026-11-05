@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from naollm.audio.listener import Listener
     from naollm.bridge import Bridge
     from naollm.llm.loop import ConversationLoop
+    from naollm.llm.residency import ModelResidency
 
 HELP: Dict[str, str] = {
     "help": "help [command]  list commands or show details",
@@ -30,6 +31,7 @@ HELP: Dict[str, str] = {
     "rest": "rest  Crouch and stiffness off",
     "walk": "walk on|off  walking toggle for turn/step (LLM and admin)",
     "llm": "llm on|off  pause/resume the conversation loop",
+    "model": "model load|unload|status  keep the LLM loaded in Ollama, release it, or show where it is",
     "reset": "reset  new visitor: clear history and displacement budget",
     "estop": "estop  emergency stop (also Ctrl+E, head touch)",
     "resume": "resume  leave STOPPED/FALLEN/RESTING after confirmation",
@@ -119,6 +121,8 @@ def completions(bridge: "Bridge", words: List[str], current: str) -> List[str]:
         options = list(POSTURES)
     elif cmd in ("walk", "llm") and len(words) == 1:
         options = ["on", "off"]
+    elif cmd == "model" and len(words) == 1:
+        options = ["load", "unload", "status"]
     elif cmd == "ears" and len(words) == 1:
         options = ["on", "off", "test"]
     elif cmd == "listen" and len(words) == 1:
@@ -145,6 +149,7 @@ class Commands:
         config_path: str = "",
         listener: Optional["Listener"] = None,
         faces: Optional["Faces"] = None,
+        model: Optional["ModelResidency"] = None,
     ) -> None:
         self.bridge = bridge
         self.mode = mode
@@ -154,6 +159,7 @@ class Commands:
         self.config_path = config_path
         self.listener = listener
         self.faces = faces
+        self.model = model
         # Set by the interactive console: runs a job in the background, so the prompt stays available.
         self.spawn: Optional[Callable[[Coroutine[Any, Any, None]], Any]] = None
 
@@ -323,6 +329,36 @@ class Commands:
         self.bridge.llm_enabled = args[0] == "on"
         self.bridge.log.log("admin", f"LLM {args[0].upper()}", source="admin")
         self.out(f"LLM {args[0].upper()}")
+
+    async def cmd_model(self, args: List[str]) -> None:
+        from naollm.llm.residency import ModelResidencyError, in_daemon_thread
+
+        if args not in (["load"], ["unload"], ["status"]):
+            raise CommandError("usage: model load|unload|status")
+        if self.model is None:
+            self.out("model control is not available")
+            return
+        name = self.model.cfg.model
+        try:
+            if args[0] == "load":
+                self.out(f"loading {name} ...")
+                await in_daemon_thread(self.model.load)
+                self.bridge.log.log("admin", f"model {name} loaded and kept loaded", source="admin")
+                self.out(f"{name} loaded; it stays loaded until 'model unload' or exit")
+            elif args[0] == "unload":
+                if self.bridge.state.state in (State.LISTENING, State.THINKING, State.ACTING) or (
+                        self.conversation is not None and self.conversation.busy):
+                    self.out(f"model unload: refused during a turn (state {self.bridge.state.state.value})")
+                    return
+                await asyncio.to_thread(self.model.unload)
+                self.bridge.log.log("admin", f"model {name} unloaded", source="admin")
+                self.out(f"{name} unloaded; the next turn loads it again with Ollama's default keep-alive")
+            else:
+                status = await asyncio.to_thread(self.model.status)
+                where = f"loaded, expires {status.expires_at or 'never'}" if status.loaded else "not loaded"
+                self.out(f"{name}: {where}; held by this bridge: {'yes' if self.model.held else 'no'}")
+        except ModelResidencyError as err:
+            self.out(f"model {args[0]}: failed, {err}")
 
     async def cmd_reset(self, args: List[str]) -> None:
         if self.conversation is not None:

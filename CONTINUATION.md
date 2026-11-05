@@ -30,6 +30,8 @@ Both changes are implemented and tested against the fake robot and `tests/qi_dou
 - `add-qi-adapter`: real adapter, motors-off mode, voice turn, `naollm init`. Open: task 4.8 (a voice turn on the robot).
 - `add-faces-consent`: perception, consent registry, `faces`, `notice`. Open: task 1.1 (data shapes with a person in view) and 5.3 (real enrolment, after the school has cleared it and consent exists).
 
+`naollm run` keeps the Ollama model loaded with `keep_alive: -1` and unloads it at exit (`add-qi-adapter` section 7, design D12). A hard kill leaves it loaded; run `ollama stop <model>` then. The default model is `gemma4:e4b`.
+
 The `FaceDetected` parsing follows the NAOqi docs and has not seen real data. Run `spike/spike.py --no-motion --faces 15` with a person in view, and compare.
 
 Ran on the real robot with nobody present: `naollm admin` (speech, eyes, status, refusals, estop, reconnect, `who_is_here`, `notice`) and `naollm init --skip-selftest`. See "First run of the real adapter" in `spike/FINDINGS.md`.
@@ -45,7 +47,7 @@ Blocked until the battery is replaced: real motion, keyframe playback, head trac
 
 ## Audio decision
 
-`faster-whisper` on the laptop is the v1 path (SPEC §11.1). Gemma native audio is only an optional v2 experiment (SPEC §11.2). The default LLM stays `gemma4:e2b`.
+`faster-whisper` on the laptop is the v1 path (SPEC §11.1). Gemma native audio is only an optional v2 experiment (SPEC §11.2). The default LLM is `gemma4:e4b`, chosen for the 15 GiB laptop. `gemma4:e2b` remains the fallback for smaller machines.
 
 ## Possible next work
 

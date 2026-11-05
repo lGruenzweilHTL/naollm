@@ -54,3 +54,18 @@ With motors off, `wake`, `rest`, `posture`, `walk on` and `anim play` SHALL refu
 #### Scenario: Status line
 - **WHEN** the operator types `status` with motors off
 - **THEN** the output states that motors are off
+
+### Requirement: Model commands
+`model load` SHALL load `llm.model` with `keep_alive: -1`, and `model unload` SHALL unload it with `keep_alive: 0`. `model status` MUST show whether the model is loaded, until when, and whether this process holds it. The commands MUST work in `run` and `admin` modes. `model unload` MUST refuse while a turn is running. A failure MUST print the reason and MUST NOT change the state.
+
+#### Scenario: Unload, then quit
+- **WHEN** the operator types `model unload` and then `quit`
+- **THEN** one unload request is sent, and the next turn before `quit` would load the model with Ollama's default keep-alive
+
+#### Scenario: Load in admin mode
+- **WHEN** the operator types `model load` in `naollm admin`
+- **THEN** the model is loaded with `keep_alive: -1`, and `quit` unloads it
+
+#### Scenario: Unload during a turn
+- **WHEN** the operator types `model unload` in THINKING
+- **THEN** the command refuses and no request is sent

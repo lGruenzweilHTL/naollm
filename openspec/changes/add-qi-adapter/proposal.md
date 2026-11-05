@@ -12,6 +12,8 @@ The bridge only runs against the fake robot, and `naollm run` without `--dry-run
 - Add `ears on|off`, `ears test` and `reconnect`, and make `listen` work. Add `listen --wav <file>` in dry-run mode, so a turn can run from a recording.
 - Add a motor-free `naollm init`: checks, Autonomous Life setting, robot profile, animation validation and a self-test.
 - Add English-only configuration: `config.example.yaml` targets this robot, and `robot.battery_reliable: false` hides the battery value, which this robot reports wrongly. German code stays, and returns through configuration once a language pack is installed.
+- Keep the LLM loaded: `naollm run` loads `llm.model` through Ollama with `keep_alive: -1` before it reports ready, and unloads it when the bridge exits. Add `model load`, `model unload` and `model status` console commands.
+- Make `gemma4:e4b` the default model in the code and in `config.example.yaml`. The laptop has 15 GiB, and `gemma4:e2b` stays the fallback for smaller machines.
 - Update SPEC.md to record the interim English and motors-off decisions.
 
 Out of scope, and blocked until the battery is replaced: behaviors, gestures, dances, keyframe playback, posture changes, head tracking, `ALAnimatedSpeech`, the `qipkg` deploy and `naollm deploy`. Face recognition is in the separate change `add-faces-consent`.
@@ -24,18 +26,20 @@ Out of scope, and blocked until the battery is replaced: behaviors, gestures, da
 - `motors-off-mode`: the guarantee that the bridge never commands a motor, and how every routine and tool behaves under it.
 - `voice-turn`: listening triggers, wake-word handling, end-of-utterance detection, speech to text and the path into the conversation loop.
 - `robot-init`: the motor-free `naollm init` command and its self-test.
+- `model-residency`: loading the Ollama model at start, keeping it loaded, and releasing it at exit.
 
 ### Modified Capabilities
 
-These capabilities are defined in the unarchived change `add-offline-core`, so `openspec/specs/` is still empty. Their deltas add requirements only. Archive `add-offline-core` before this change.
+These capabilities come from the archived change `add-offline-core`. The `conversation-loop` delta changes the default model, and the other deltas add requirements only.
 
 - `bridge-config`: new keys for motors-off mode, battery reliability, the listen address and speech input, plus English-only configuration.
-- `admin-cli`: `ears`, `reconnect`, `listen` and how motion commands behave with motors off.
+- `admin-cli`: `ears`, `reconnect`, `listen`, `model` and how motion commands behave with motors off.
+- `conversation-loop`: the default model is `gemma4:e4b`.
 
 ## Impact
 
 - **Code**: new `robot/qi_adapter.py`, `audio/` and `deploy/` packages. Changes in `bridge.py`, `main.py`, `config.py`, `state`-driven eyes, `robot/events.py`, `robot/adapter.py`, `robot/fake_adapter.py`, `tools/gate.py`, `tools/registry.py`, `tools/handlers.py`, `tools/messages.py`, `llm/prompts.py`, `llm/loop.py`, `admin/commands.py`.
 - **Dependencies**: optional extras `robot` (`qi`) and `voice` (`faster-whisper`, `webrtcvad-wheels`). The core package and its tests keep working without them.
-- **Configuration**: new optional keys. Existing files stay valid, and code defaults do not change. The local `config.yaml` needs the English and motors-off values before a real run.
+- **Configuration**: new optional keys. Existing files stay valid. The only changed code default is `llm.model`, now `gemma4:e4b`. The local `config.yaml` needs the English and motors-off values before a real run.
 - **Hardware**: every hardware task needs no motors. Results for 2.8.5.11 are recorded in `spike/FINDINGS.md`.
 - **Privacy**: audio leaves the robot only after a trigger, stays in memory and is discarded after transcription (SPEC §12.2).

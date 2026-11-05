@@ -22,7 +22,7 @@ def minimal(**extra):
 
 def test_example_config_loads():
     cfg = load_config(ROOT / "config.example.yaml")
-    assert cfg.llm.model == "gemma4:e2b"
+    assert cfg.llm.model == "gemma4:e4b"
     assert cfg.gestures["victory"] == "anim:victory"
     assert cfg.audio.wake_language == "English"
     assert cfg.event_mode is True
