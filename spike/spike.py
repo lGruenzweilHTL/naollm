@@ -90,22 +90,59 @@ def connect(args):
     return app, session
 
 
+def motors_off(session):
+    """--no-motion gate: run the checks only while the robot is at rest with its motors off.
+
+    Autonomous Life can wake the robot by itself, so a state other than "disabled" also stops the run,
+    unless the operator chooses to disable it.
+    """
+    print("\n=== motors-off ===", flush=True)
+    life = session.service("ALAutonomousLife")
+    motion = session.service("ALMotion")
+
+    def awake():
+        stiffness = max(motion.getStiffnesses("Body"))
+        print(f"Autonomous Life {life.getState()}, wake-up {motion.robotIsWakeUp()}, max stiffness {stiffness}")
+        return motion.robotIsWakeUp() or stiffness > 0
+
+    if awake():
+        record("motors-off", False, "robot is awake or stiff; put it at rest, then run again")
+        return False
+    if life.getState() != "disabled":
+        print("Autonomous Life can wake the robot during the run. The effect of disabling it was not tested.")
+        if not ask("Robot in a safe position, set Autonomous Life to disabled now?"):
+            record("motors-off", False, f"Autonomous Life stays {life.getState()}; run stopped")
+            return False
+        life.setState("disabled")
+        if awake():
+            record("motors-off", False, "robot is awake or stiff after disabling Autonomous Life; run stopped")
+            return False
+    record("motors-off", True, f"Autonomous Life {life.getState()}, motors off")
+    return True
+
+
 # --- 2 ------------------------------------------------------------------------
 @check("speak")
-def speak(session):
+def speak(session, animated=True):
     tts = session.service("ALTextToSpeech")
     langs = tts.getAvailableLanguages()
     print(f"installed TTS languages: {langs}")
+    sentences = (("German", "Hallo, ich bin NAO."), ("English", "Hello, I am NAO."))
     spoken = []
-    for lang, text in (("German", "Hallo, ich bin NAO."), ("English", "Hello, I am NAO.")):
+    for lang, text in sentences:
         if lang in langs:
             tts.setLanguage(lang)
             tts.say(text)
             spoken.append(lang)
-    animated = session.service("ALAnimatedSpeech")
+    missing = [lang for lang, _ in sentences if lang not in spoken]
+    ok = not missing  # SPEC §11.1 needs both languages
+    summary = f"spoke in {spoken}; missing {missing}; languages {langs}"
+    if not animated:
+        record("speak", ok, f"{summary}; ALAnimatedSpeech not tested (--no-motion)")
+        return
     tts.setLanguage("German" if "German" in langs else langs[0])
-    animated.say("Und jetzt mit Gesten.")
-    record("speak", bool(spoken), f"spoke in {spoken}; ALAnimatedSpeech ok; languages {langs}")
+    session.service("ALAnimatedSpeech").say("Und jetzt mit Gesten.")
+    record("speak", ok, f"{summary}; ALAnimatedSpeech ok")
 
 
 # --- 3 ------------------------------------------------------------------------
@@ -198,20 +235,26 @@ def audio(session, save_wav):
 
 # --- 6 ------------------------------------------------------------------------
 @check("wakeword")
-def wakeword(session, seconds, threshold):
+def wakeword(session, seconds, threshold, language, words):
     asr = session.service("ALSpeechRecognition")
     memory = session.service("ALMemory")
-    print(f"ASR languages: {asr.getAvailableLanguages()}")
+    available = asr.getAvailableLanguages()
+    print(f"ASR languages: {available}")
+    if language not in available:
+        record("wakeword", False, f"ASR language {language} not available; available {available}")
+        return
     asr.pause(True)
-    asr.setLanguage("German")
-    asr.setVocabulary(["Hallo NAO", "Hey NAO"], True)  # True = word spotting
-    asr.pause(False)
+    try:
+        asr.setLanguage(language)
+        asr.setVocabulary(words, True)  # True = word spotting
+    finally:
+        asr.pause(False)  # resume even when the setup fails, so the robot's ASR is not left paused
     heard = []
     sub = memory.subscriber("WordRecognized")
     sub.signal.connect(lambda value: heard.append(value))
     asr.subscribe("NaollmSpike")
     try:
-        print(f"Say 'Hallo NAO' or 'Hey NAO' a few times within {seconds} s (also try at 1 m) ...", flush=True)
+        print(f"Say {words} a few times within {seconds} s (also try at 1 m) ...", flush=True)
         time.sleep(seconds)
     finally:
         asr.unsubscribe("NaollmSpike")
@@ -222,7 +265,7 @@ def wakeword(session, seconds, threshold):
             if value[i]:
                 hits.append((value[i], round(float(value[i + 1]), 2)))
     good = [h for h in hits if h[1] >= threshold]
-    record("wakeword", bool(good), f"{len(hits)} recognitions, {len(good)} above {threshold}: {hits}")
+    record("wakeword", bool(good), f"{language}: {len(hits)} recognitions, {len(good)} above {threshold}: {hits}")
 
 
 # --- 7 ------------------------------------------------------------------------
@@ -230,7 +273,7 @@ def wakeword(session, seconds, threshold):
 def qipkg(robot, pml):
     exe = shutil.which("qipkg")
     if not exe:
-        record("qipkg", False, "qipkg not found: pip install qipkg (check it supports this Python)")
+        record("qipkg", False, "qipkg not found: pip install qibuild (it provides qipkg; check it supports this Python)")
         return
     if not pml:
         out = subprocess.run([exe, "--help"], capture_output=True, text=True)
@@ -246,6 +289,51 @@ def qipkg(robot, pml):
                               capture_output=True, text=True)
     print(deployed.stdout, deployed.stderr)
     record("qipkg", deployed.returncode == 0, f"deploy-package exit {deployed.returncode}")
+
+
+# --- faces --------------------------------------------------------------------
+@check("faces")
+def faces(session, seconds):
+    """Read-only, no motors: learns no face and saves no image. Reports data shapes only, not names."""
+    detection = session.service("ALFaceDetection")
+    people = session.service("ALPeoplePerception")
+    memory = session.service("ALMemory")
+    print(f"learned faces: {len(detection.getLearnedFacesList())}")
+    print(f"recognition enabled: {detection.isRecognitionEnabled()}, tracking enabled: {detection.isTrackingEnabled()}")
+    events = set(memory.getEventList())
+    wanted = ("FaceDetected", "PeoplePerception/VisiblePeopleList", "PeoplePerception/PeopleDetected")
+    print(f"events: { {name: name in events for name in wanted} }")
+    shapes = {}
+
+    def shape(value, depth=0):
+        if isinstance(value, (list, tuple)):
+            if depth >= 5 or not value:
+                return f"list[{len(value)}]"
+            return [shape(v, depth + 1) for v in list(value)[:6]]
+        return type(value).__name__
+
+    detection.subscribe("NaollmSpikeFaces")
+    people.subscribe("NaollmSpikePeople")
+    try:
+        print(f"Look at the robot's camera for {seconds} s ...", flush=True)
+        end = time.time() + seconds
+        counts = {"faces": 0, "people": 0}
+        while time.time() < end:
+            face = memory.getData("FaceDetected")
+            visible = memory.getData("PeoplePerception/VisiblePeopleList")
+            if face:
+                counts["faces"] += 1
+                shapes["FaceDetected"] = shape(face)
+            if visible:
+                counts["people"] = max(counts["people"], len(visible))
+                shapes["VisiblePeopleList"] = shape(visible)
+            time.sleep(0.2)
+    finally:
+        detection.unsubscribe("NaollmSpikeFaces")
+        people.unsubscribe("NaollmSpikePeople")
+    print(f"data shapes: {shapes}")
+    record("faces", True, f"services respond; samples with a face: {counts['faces']}, most people: {counts['people']}; "
+                          f"tracking enabled: {detection.isTrackingEnabled()}; shapes: {shapes or 'nobody seen'}")
 
 
 # --- extras -------------------------------------------------------------------
@@ -267,14 +355,16 @@ def extras(session, seconds):
     memory = session.service("ALMemory")
     touched = []
     subs = []
-    for ev in ("FrontTactilTouched", "MiddleTactilTouched", "RearTactilTouched"):
+    sensors = ("FrontTactilTouched", "MiddleTactilTouched", "RearTactilTouched")
+    for ev in sensors:
         s = memory.subscriber(ev)
         s.signal.connect(lambda v, ev=ev: touched.append((ev, v)))
         subs.append(s)
     print(f"Touch the front, middle and rear head sensors within {seconds} s ...", flush=True)
     time.sleep(seconds)
     seen = sorted({ev for ev, v in touched if v})
-    record("extras", True, f"head touch events seen: {seen}")
+    missing = [ev for ev in sensors if ev not in seen]
+    record("extras", not missing, f"head touch events seen: {seen}; missing: {missing}")
 
 
 def main():
@@ -286,27 +376,39 @@ def main():
     p.add_argument("--save-wav", help="write the 5 s mic test to this WAV file")
     p.add_argument("--wake-seconds", type=float, default=20)
     p.add_argument("--wake-threshold", type=float, default=0.5)
+    p.add_argument("--wake-language", default="German", help="ASR language for the wake word check (SPEC §11.1: German)")
+    p.add_argument("--wake-words", nargs="+", default=["Hallo NAO", "Hey NAO"], help="phrases to spot")
+    p.add_argument("--faces", type=float, metavar="SECONDS", help="also run the read-only face and people probe")
     p.add_argument("--skip", nargs="*", default=[], help="checks to skip")
+    p.add_argument("--no-motion", action="store_true",
+                   help="never command the motors: stop unless the robot is at rest, list behaviors without "
+                        "running them, leave out ALAnimatedSpeech and the final rest")
     args = p.parse_args()
+    if args.no_motion and args.behavior:
+        p.error("--behavior runs motors, so it does not work with --no-motion")
 
     app, session = connect(args)
-    if session is not None:
+    proceed = session is None or not args.no_motion or motors_off(session)
+    if session is not None and proceed:
         steps = [
-            ("speak", lambda: speak(session)),
+            ("speak", lambda: speak(session, animated=not args.no_motion)),
             ("battery", lambda: battery(session)),
             ("behavior", lambda: behavior(session, args.behavior)),
             ("audio", lambda: audio(session, args.save_wav)),
-            ("wakeword", lambda: wakeword(session, args.wake_seconds, args.wake_threshold)),
+            ("wakeword", lambda: wakeword(session, args.wake_seconds, args.wake_threshold,
+                                          args.wake_language, args.wake_words)),
             ("extras", lambda: extras(session, 15)),
         ]
+        if args.faces:
+            steps.append(("faces", lambda: faces(session, args.faces)))
         for name, fn in steps:
             if name in args.skip:
                 record(name, None, "skipped (--skip)")
             else:
                 fn()
-    if "qipkg" not in args.skip:
+    if "qipkg" not in args.skip and proceed:
         qipkg(args.robot, args.package)
-    if session is not None:
+    if session is not None and not args.no_motion:
         try:
             session.service("ALMotion").rest()
         except Exception:
