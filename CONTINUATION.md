@@ -4,16 +4,15 @@ Paste everything below the line into a new Claude Code session started in `~/nao
 
 ---
 
-Continue work on `naollm`, a local bridge that lets a NAO 6 robot hold spoken conversations through a local LLM and move through tool calls that a safety gate checks. It is for a school robotics club showcase. Read `SPEC.md` (v0.2) for the design and `README.md` for usage.
+Continue work on `naollm`, a local bridge that lets a NAO 6 robot hold spoken conversations through a local LLM. It is for a school robotics club showcase. Read `SPEC.md` (v0.3, start with "Interim: English only, motors off") for the design and `README.md` for usage.
 
 ## Environment
 
-- This is a dev container with no NAO connection. Do not install NAOqi or `qi` here. Robot tests and real model tests run on my laptop, not here.
-- The root disk has about 1.5 GB free. Put caches, downloads and model files in `/tmp`.
-- The venv is `/tmp/naollm-venv`. If it is gone, recreate it. `ensurepip` is missing, so use `python3 -m venv --without-pip`, bootstrap pip with `get-pip.py`, then run `pip install -e '.[dev]'`.
-- Run the tests with `/tmp/naollm-venv/bin/pytest`. Last result: 160 passed in about 47 s.
-- Only Python 3.13 is available here. The code targets `>=3.10`, so avoid 3.11+ only features.
-- `master` tracks `origin` (`git@github.com:lGruenzweilHTL/naollm.git`).
+- This laptop reaches the robot at `nao.local`. NAOqi 2.8.5.11, Python 3.12, `qi` 3.1.5.
+- **Never command the robot's motors. The battery is defective.** Test only motor-free features. A read-only check of stiffness before and after a run is cheap, so do it.
+- The venv is `.venv`, with `qi`, `qibuild`, `pytest` and `webrtcvad-wheels`. It has no pip; use `uv pip install --python .venv/bin/python`. `faster-whisper` is not installed yet, and needs the `voice` extra.
+- Run the tests with `.venv/bin/python -m pytest`. `test_public_endpoint_warns` fails on this network, because `api.example.com` resolves to a private address here. It failed before this work too.
+- The root disk has about 3 GB free. Whisper models and the `voice` extra use several hundred MB.
 
 ## Working rules
 
@@ -24,41 +23,30 @@ Continue work on `naollm`, a local bridge that lets a NAO 6 robot hold spoken co
 
 ## State
 
-Done, against the fake robot only:
+The spike has run on the robot; see `spike/FINDINGS.md`. It found no German on the robot, a battery that must not be used, and a weak wake word.
 
-- Config, the robot adapter interface and the fake robot
-- Safety gate, state machine, emergency stop and event watcher
-- The 10 LLM tools
-- Text conversation loop with German and English prompts
-- Operator console (`naollm run`, `naollm admin`, hotkeys, two-stage Ctrl+C, signals); visitor text is typed with `chat`
-- Keyframe animations: format, validator, Choregraphe import, playback
-- `naollm eval` with 40 cases
-- `spike/spike.py`, its checklist and the `FINDINGS.md` template
+Both changes are implemented and tested against the fake robot and `tests/qi_double.py`. They wait for work at the robot, so they are not archived:
 
-The OpenSpec change `add-offline-core` is complete (36/36 tasks) but not archived, so `openspec/specs/` is still empty.
+- `add-qi-adapter`: real adapter, motors-off mode, voice turn, `naollm init`. Open: tasks 3.9, 4.8 and 5.5 (on-robot checks).
+- `add-faces-consent`: perception, consent registry, `faces`, `notice`. Open: task 1.1 (data shapes with a person in view) and 5.3 (real enrolment, after the school has cleared it and consent exists).
 
-Waiting for the spike, which needs NAO access:
+The `FaceDetected` parsing follows the NAOqi docs and has not seen real data. Run `spike/spike.py --no-motion --faces 15` with a person in view, and compare.
 
-- The real `qi` adapter (pip `qi`, Python 2 shim or ROS 2, decided by the spike)
-- The robot audio stream and wake word
-- `naollm init` and `naollm deploy`
-- A Choregraphe project with real dances and gestures
-- Confirming the default gesture paths, which are unverified guesses
-- Reviewing `animations/victory.anim.yaml` on the robot (`reviewed_by` is deliberately empty)
-- The hardware parts of perception: head tracking, `who_is_here`, face enrolment
+Ran on the real robot with nobody present: `naollm admin` (speech, eyes, status, refusals, estop, reconnect, `who_is_here`, `notice`) and `naollm init --skip-selftest`. See "First run of the real adapter" in `spike/FINDINGS.md`.
 
 Not verified yet:
 
+- Anything that needs a person at the robot: hearing speech, seeing eyes, head touches, the listening sound, a voice turn, wake word tuning.
+- Real speech through Whisper, and turn latency.
 - The tests have not run on Python 3.10.
 - `naollm eval` has not run against a real model.
-- `spike/spike.py` has never talked to NAOqi, so expect small API fixes on the first run.
+
+Blocked until the battery is replaced: real motion, keyframe playback, head tracking, `qipkg` deploy and `naollm deploy`.
 
 ## Audio decision
 
-`faster-whisper` on the laptop is the v1 path (SPEC §11.1). Gemma native audio is only an optional v2 experiment (SPEC §11.2): E4B only, and only if it beats Whisper on our own recorded clips in both German and English. The default LLM stays `gemma4:e2b`.
+`faster-whisper` on the laptop is the v1 path (SPEC §11.1). Gemma native audio is only an optional v2 experiment (SPEC §11.2). The default LLM stays `gemma4:e2b`.
 
 ## Possible next work
 
-I had not chosen yet. The proposed next change was a VAD + `faster-whisper` wrapper with a WAV file input, so a whole turn can run from a recorded clip before the robot is available. The other option that needs no robot is the consent registry and `faces` commands against the fake robot.
-
-Start by checking `git status` and running the tests, then ask me which one to do.
+Finish the on-robot checks above, then archive both changes. German needs the store route in `spike/FINDINGS.md`.

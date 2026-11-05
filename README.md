@@ -2,7 +2,9 @@
 
 A local bridge that lets a NAO 6 robot hold spoken conversations through a local LLM (any OpenAI-compatible endpoint, default Ollama with `gemma4:e2b`) and move through tool calls that a safety gate checks. It was built for a robotics club showcase at school. The full design is in [`SPEC.md`](SPEC.md).
 
-**Current state:** everything that does not need the robot runs against a fake robot. This covers the configuration, the safety gate, the tools, the text conversation loop, the operator console and keyframe animations. The real robot connection, audio input, `naollm init` and `naollm deploy` are built after the phase 0 connectivity spike in [`spike/`](spike/).
+**Current state:** the bridge talks to the real robot in English, with motors off. Behaviors, gestures, dances, postures, head tracking and `naollm deploy` wait for a new battery and run only on the fake robot, or not at all. See [Real robot](#real-robot).
+
+> **No motors.** This robot's battery is defective, so never command its motors. The real adapter contains no code that can, and a real run refuses to start unless `motion.motors_enabled` is `false`. Keep the robot in a safe seated or lying position: the bridge refuses to start if the robot is awake, but it cannot prevent a wake-up between runs.
 
 ## Setup
 
@@ -12,7 +14,13 @@ You need Python 3.10 or newer.
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
-cp config.example.yaml config.yaml   # then set robot.url, dances, gestures
+cp config.example.yaml config.yaml   # then set robot.url
+```
+
+The extras are optional. The core package and its tests work without them:
+
+```bash
+pip install -e '.[dev,robot,voice]'   # robot: qi; voice: faster-whisper and webrtcvad-wheels
 ```
 
 To use local Ollama:
@@ -28,14 +36,31 @@ naollm admin --dry-run --config config.yaml   # operator console, no LLM
 naollm run --dry-run --config config.yaml     # console + conversation loop (needs the LLM endpoint)
 ```
 
-In dry-run mode, every robot action is printed as a `[robot] ...` line instead of being executed. While the audio input does not exist yet, type the visitor's words with `chat`:
+In dry-run mode, every robot action is printed as a `[robot] ...` line instead of being executed. Type the visitor's words with `chat`, or run a recording through the whole voice flow with `listen --wav`. The file must be 16 kHz mono 16-bit, and the speech model loads at the first `listen`:
 
 ```
-naollm> chat Kannst du winken?
-naollm> chat --en Can you dance?
+naollm> chat Can you dance?
+naollm> chat --de Kannst du winken?
+naollm> listen --wav clip.wav
 ```
 
 If `event_mode: true` is set (as in the example config), the log does not show spoken text or visitor text. For prompt tuning at home, set `event_mode: false`.
+
+## Real robot
+
+The target is a NAO 6 on NAOqi 2.8 with Python 3.12 and `qi` 3.1.5 on the laptop.
+
+1. Set `robot.url` in `config.yaml`. Set `robot.listen_ip` to this laptop's address if remote audio does not arrive.
+2. Run `naollm init --robot <ip-or-hostname>`. It checks the languages, disables Autonomous Life after you confirm, writes the robot profile to `~/.naollm/robots/`, validates animations without playing them, and runs an interactive self-test. It sends no motor command. Use `--skip-selftest`, `--only <step>` or `--dry-run` as needed.
+3. Run `naollm admin` for the console with no LLM and no listening, or `naollm run` for the conversation.
+
+To talk to the robot, say the wake phrase, tap the front of its head, or press `space` on an empty console line. The eyes turn blue while it listens and yellow while it thinks. Audio leaves the robot only after a trigger, stays in memory and is discarded after transcription.
+
+A middle or rear head touch runs the emergency stop on purpose. Type `resume` to continue.
+
+The wake phrase is weak on this robot: it scored 0.43 and 0.44 in the spike. Run `ears test` to see the confidences and tune `audio.wake_threshold` on site. The head tap and the key do not depend on it.
+
+If `faster-whisper` or `webrtcvad-wheels` is missing, or the speech model cannot load, the bridge still starts with typed `chat` and shows an alert.
 
 ## Operator console
 
@@ -46,22 +71,27 @@ Type `help` in the console for the full list.
 | `status`, `tools`, `behaviors` | Show robot state, the LLM tools and installed behaviors |
 | `tool <name> [args…]` | Run a tool through the same safety gate the LLM uses, e.g. `tool dance macarena`, `tool step forward 20`, `tool look direction=left` |
 | `say "<text>"` | Make NAO speak |
-| `posture <Stand\|Sit\|Crouch>`, `wake`, `rest` | Postures and stiffness |
-| `walk on\|off` | Enable `turn` and `step` (for the LLM too) |
+| `posture <Stand\|Sit\|Crouch>`, `wake`, `rest` | Postures and stiffness (refused with motors off) |
+| `walk on\|off` | Enable `turn` and `step` for the LLM too (`on` is refused with motors off) |
+| `listen [--wav <file>]` | Start listening; `--wav` only in a dry run |
+| `ears on\|off`, `ears test` | Wake word on or off, or show every recognized phrase and confidence for 30 s |
+| `reconnect` | Connect again after a network drop; then type `resume` |
+| `faces list`, `faces enroll <name>`, `faces delete <name>`, `faces delete --all` | Enrolled faces and their consent records, see [Faces and privacy](#faces-and-privacy) |
+| `notice` | The robot speaks the privacy notice (not during a turn) |
 | `llm on\|off`, `reset`, `chat` | Pause the conversation, start a new visitor, send typed text |
 | `estop`, `resume` | Emergency stop, and leaving it again (asks for `y`) |
-| `quit` | Safe shutdown: stop, Crouch, rest, disconnect |
+| `quit` | Safe shutdown: stop, Crouch, rest, disconnect. With motors off: unsubscribe and disconnect only |
 
 ### Hotkeys
 
 - **`Ctrl+E`** runs the emergency stop at any time, even while you are typing.
-- **`space` on an empty line** starts listening. This needs the audio input; until then it only logs a message. With text on the line, `space` types a space.
+- **`space` on an empty line** starts listening. With text on the line, `space` types a space.
 - **`Ctrl+C`**:
   - The first press runs the emergency stop and keeps the console open.
   - A second press within 3 s shuts down safely and exits.
   - `SIGTERM` and closing the terminal also run the emergency stop first, then shut down.
 
-When the input is piped, as in `naollm admin --dry-run < script.txt`, the console runs the commands one after another. Use this for scripted checks.
+When the input is piped, as in `cat script.txt | naollm admin --dry-run`, the console runs the commands one after another. Use this for scripted checks.
 
 ### Emergency stop limitation
 
@@ -71,6 +101,29 @@ If the laptop crashes hard or loses power, the bridge cannot stop the robot. The
 - NAOqi's own fall manager.
 
 The operator always stays within reach of the robot (SPEC §18.3).
+
+## Faces and privacy
+
+Face recognition uses biometric data, and visitors include minors. Before anyone is enrolled, the school and the club supervisor must clear this, and a signed consent form must exist for that person (SPEC §12). This software enforces the workflow, but it does not establish a lawful basis. `config.example.yaml` therefore sets `privacy.face_recognition_enabled: false`. Leave it false until the clearance exists.
+
+`faces enroll <name>` asks for the consent form ID first, and a blank answer aborts. It then asks for the deletion date, tells you to position the robot's head by hand, and tries to learn the face up to 3 times. If anything fails, or the emergency stop fires, nothing is stored. Records go to `~/.naollm/consent.json`, which is readable only by you. At startup the console lists records past their deletion date and offers to delete them. `faces list` shows faces with no record, and records with no face; delete to resolve them. A damaged registry blocks enrolment and is never overwritten. To remove the feature, run `faces delete --all`, then delete the file.
+
+In event mode, the log contains no names and no form IDs.
+
+### Signage text
+
+> Say 'Hey NAO' or tap the front of his head. He then listens for a moment and processes speech only locally on this laptop. Nothing is stored. The camera only notices that someone is there. Faces are recognized only for club members who consented.
+
+Change the wake phrase here if you change `audio.wake_words`, and add the head turning only when motors are back.
+
+### Deletion checklist, after the event
+
+1. Run `faces list`, and check for overdue records and mismatches.
+2. Run `faces delete --all`, and type `DELETE`.
+3. Run `faces list` again. It must show that no faces are enrolled.
+4. Check that `~/.naollm/consent.json` holds an empty list. Keep or delete it as the school requires.
+5. Check that the laptop holds no audio files and no transcripts. The bridge writes neither.
+6. File the signed consent forms, or destroy them, as the school requires.
 
 ## Keyframe animations
 
@@ -100,4 +153,4 @@ This runs `tests/eval/tool_calls.yaml`: 40 German and English prompts. Each case
 pytest
 ```
 
-The tests use the fake robot and a stub LLM endpoint. No robot, Ollama or network is needed.
+The tests use the fake robot, a strict fake of the `qi` module and a stub LLM endpoint. No robot or Ollama is needed. `tests/qi_double.py` fails on any NAOqi call outside its allowlist, which is what proves the motors-off guarantee.

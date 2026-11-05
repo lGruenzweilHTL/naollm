@@ -1,11 +1,30 @@
 # SPEC — NAO 6 × LLM Bridge (Robotics Club Showcase)
 
-Status: Draft v0.2 · 2026-10-30
+Status: Draft v0.3 · 2026-11-05
 
 Changelog:
+- v0.3 (2026-11-05): recorded the interim state of the real robot (see "Interim: English only, motors off" below). Added `audio.no_speech_timeout_s` and `robot.battery_reliable`, `robot.listen_ip`, `motion.motors_enabled`; chose `webrtcvad-wheels` for VAD; dropped `audio/robot_stream.py` and `audio/wake.py` for `robot/qi_adapter.py` and `audio/listener.py`; adapted `naollm init` and face enrolment to motors off; added an English notice and signage.
 - v0.2 (2026-10-30): resolved review conflicts. Gate rejects out-of-range arguments (no clamping); LLM `stop` is a soft stop; status colours removed from `set_eyes`; gesture enum generated from config; speech finishes before motion; wake-word ASR fixed to German; `RobotAdapter` split into sub-interfaces; eval cases tagged with config profiles; listen hotkey `space` only on an empty prompt line; wake-word commands renamed to `ears`; phase 0 spike kept outside OpenSpec in `spike/`.
 - v0.1 (2026-10-28): first draft.
 Scope: A local, privacy-first system that lets a NAO 6 robot hold spoken conversations driven by a local LLM (via an OpenAI-compatible API) and perform movements through tool calls. Target deployment: robotics club showcase at school.
+
+---
+
+## Interim: English only, motors off
+
+The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. This section overrides the rest of the SPEC until they are solved. Sections below still describe the target design.
+
+**Motors off.** The robot's battery is defective, so no motor may be used. The real adapter contains no code that commands a motor: its motion methods raise `MotorsDisabled` without calling NAOqi, and `tests/qi_double.py` fails on any NAOqi call outside an allowlist.
+
+- `motion.motors_enabled` must be `false` for a real run; otherwise the bridge refuses to start. The fake robot works with either value.
+- Startup refuses unless the robot is at rest and Autonomous Life is `disabled`, and it changes nothing itself. Only `naollm init` can disable Autonomous Life, after the operator confirms. A poll every 5 s reports a later wake-up with an alert and STOPPED, and sends no motor command.
+- With motors off, §6.3, §6.4, §10.3 and §18.3 skip every motion step and keep the rest. The gate rejects motion tools with the reason `motors_off`, the LLM is neither offered them nor told it can move, and `wake`, `rest`, `posture`, `walk on` and `anim play` refuse.
+- Speech always uses `ALTextToSpeech`, never `ALAnimatedSpeech`. `ALFaceDetection` head tracking is switched off before perception starts.
+- Blocked until the battery is replaced: behaviors, gestures, dances, keyframe playback, postures, head tracking, `qipkg` deploy and `naollm deploy`.
+
+**English only.** The robot has neither German TTS nor German ASR. `config.example.yaml` configures English, with the wake phrase `Hey NAO` and `audio.wake_threshold: 0.4`, because the phrase scored 0.43 and 0.44 in the spike. Code defaults stay German, and German returns through configuration alone once a language pack is installed; the comments in the example say how. A turn whose language has no installed voice runs in `robot.language`.
+
+**Battery.** `robot.battery_reliable: false` hides the value, because this robot reads 100 % whatever its charge. Battery events are then only logged.
 
 ---
 
@@ -131,8 +150,7 @@ naollm/
 │   │   ├── gate.py          # SAFETY GATE (validation, range checks, preconditions)
 │   │   └── handlers.py      # tool implementations calling RobotAdapter
 │   ├── audio/
-│   │   ├── wake.py          # on-robot word spotting control + triggers
-│   │   ├── robot_stream.py  # ALAudioDevice remote subscription → PCM
+│   │   ├── listener.py      # triggers, wake word pause rules, listening flow, handoff to the turn
 │   │   ├── vad.py           # end-of-utterance detection
 │   │   └── stt.py           # faster-whisper wrapper
 │   ├── animations/
@@ -148,7 +166,8 @@ naollm/
 │   │   ├── cli.py           # admin prompt, command parser, hotkeys (§18)
 │   │   ├── commands.py      # command implementations
 │   │   ├── estop.py         # emergency-stop routine + SIGINT/SIGTERM handlers
-│   │   └── consent.py       # consent registry for enrolled faces
+│   │   ├── consent.py       # consent registry for enrolled faces
+│   │   └── faces.py         # `faces` commands and guided enrolment
 │   └── privacy/
 │       └── policy.py        # central switches for privacy-relevant features
 ├── choregraphe/
@@ -468,8 +487,8 @@ Audio always comes from NAO's own microphones (front mic, 16 kHz mono).
 **Recording after the trigger:**
 
 1. Eyes blue, short "listening" sound.
-2. The bridge subscribes to `ALAudioDevice` as a **remote audio client** (front channel, 16 kHz) and receives raw PCM over qi.
-3. Voice activity detection (`webrtcvad` or `silero-vad`) on the laptop ends the utterance after 0.8 s of silence; hard limit 15 s.
+2. The bridge subscribes to `ALAudioDevice` as a **remote audio client** (front channel, 16 kHz) and receives raw PCM over qi. This code lives in `robot/qi_adapter.py`, because §6.1 keeps transport code inside `naollm.robot`.
+3. Voice activity detection (`webrtcvad-wheels`, the fork with Python 3.12 wheels) on the laptop ends the utterance after 0.8 s of silence, with a hard limit of 15 s. If nobody speaks within `audio.no_speech_timeout_s` (default 5 s), the attempt ends, so an accidental trigger does not keep the mic open.
 4. The bridge unsubscribes, eyes yellow, audio goes to `faster-whisper`.
 5. Ignore utterances < 0.5 s or empty transcripts.
 
@@ -530,7 +549,10 @@ Audio always comes from NAO's own microphones (front mic, 16 kHz mono).
 1. **Consent form** for face enrolment (member or guardian signature, purpose, deletion date, withdrawal anytime).
 2. **Signage** at the booth, e.g.:
    > "Sag 'Hallo NAO' oder tippe ihm vorne auf den Kopf. Danach hört er kurz zu und verarbeitet Sprache nur lokal auf diesem Laptop. Es wird nichts gespeichert. Die Kamera erkennt nur, dass jemand da ist, und dreht den Kopf zu dir. Gesichter werden nur bei Club-Mitgliedern mit Einwilligung erkannt."
-3. Short **spoken notice** available via operator button.
+
+   While the robot is English only with motors off, use this instead (also in the README):
+   > "Say 'Hey NAO' or tap the front of his head. He then listens for a moment and processes speech only locally on this laptop. Nothing is stored. The camera only notices that someone is there. Faces are recognized only for club members who consented."
+3. Short **spoken notice** available via the `notice` command, in the current language. It does not mention the head turning while motors are off.
 4. **Deletion checklist** after the event (forget all faces, confirm no files written).
 
 ### 12.4 Privacy switches (`privacy` config block)
@@ -606,6 +628,8 @@ Checklist per phase: connect, speak, each gesture, each dance, posture changes, 
 robot:
   url: tcp://192.168.8.20:9559
   language: German
+  battery_reliable: true
+  # listen_ip: 192.168.8.10   # this laptop's address, if remote audio does not arrive
 llm:
   base_url: http://localhost:11434/v1
   api_key: ollama
@@ -631,7 +655,9 @@ audio:
   operator_key: space        # only when the admin prompt line is empty
   vad_silence_s: 0.8
   max_utterance_s: 15
+  no_speech_timeout_s: 5
 motion:
+  motors_enabled: true       # false on the current robot (see "Interim" above)
   walking_enabled: false
   max_turn_deg: 90
   max_step_cm: 30
@@ -767,7 +793,9 @@ Limitation (documented in the README): if the laptop crashes hard or loses power
 2. CLI asks for the deletion date (default: day after the event).
 3. Robot says "Bitte schau mich an", eyes green, head tracking on.
 4. Bridge calls `learn_face(name)`; retries up to 3 times with a spoken hint.
-5. On success: robot says the name once, CLI writes the consent record. On failure: nothing is stored.
+5. On success: CLI writes the consent record, then the robot says the name once. On failure: nothing is stored.
+
+With motors off, step 3 differs: head tracking stays off, and the console tells the operator to position the robot's head by hand before learning. The spoken lines use the current language. The name, which may contain 1 to 32 letters, digits, spaces or hyphens, must not already have a record. An emergency stop aborts enrolment and stores nothing.
 
 Names may be nicknames; the CLI does not ask for anything else.
 
@@ -863,6 +891,8 @@ Goal: a fresh or reset NAO is showcase-ready with one command.
 ### 20.1 `naollm init --robot <ip-or-hostname>`
 
 Idempotent and safe to re-run. Each step prints ✓ / ✗ with a fix hint.
+
+While motors are off (see "Interim" above), `naollm init` runs only the connect, languages, robot settings, robot profile, animations, self-test and summary steps. It sends no motor command. It leaves out SSH access, the package deploy, the Stand and gesture checks, and `--name`. The robot settings step only disables Autonomous Life, after a confirmation. The self-test covers speech, eyes, each head sensor, microphone level, a wake word attempt and the battery reading, and marks a skipped check as skipped.
 
 1. **Connect** over qi; read NAOqi version and robot name. Abort if not NAOqi 2.8.x.
 2. **SSH access** for package deployment: prompt once for the robot's `nao` password and install the laptop's SSH public key, so later deploys are password-free. The password is never written to disk or config.
