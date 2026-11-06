@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--timeout", type=float, default=None,
                     help="seconds to wait per request and between streamed chunks (default 120)")
     ev.add_argument("--no-warmup", action="store_true", help="do not load the model before the first case")
+    ev.add_argument("--run", action="append", default=None, metavar="TEXT",
+                    help="matrix config: only the runs whose label contains TEXT (repeatable)")
     return parser
 
 

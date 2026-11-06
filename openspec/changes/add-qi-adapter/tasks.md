@@ -71,3 +71,10 @@
 - [x] 9.2 Load the model before the first eval case, release it at the end, and wait 120 s per request, with `--timeout` and `--no-warmup`, with tests against a stub Ollama
 - [x] 9.3 Add the verbose trace, the timing report, the empty-reply rule and the partial report on Ctrl+C, with tests
 - [x] 9.4 Update README, SPEC and CONTINUATION, check against the local Ollama, and run the full test suite
+
+## 10. Eval matrix
+
+- [x] 10.1 Add the matrix config with `base` and `runs`, the comparison table, `--run`, and the partial table on Ctrl+C, with tests
+- [x] 10.2 Ship `tests/eval/eval_config.yaml` with the candidate models, thinking on and off where supported
+- [x] 10.3 Update README and SPEC, and run the full test suite
+

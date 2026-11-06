@@ -17,6 +17,7 @@ The bridge only runs against the fake robot, and `naollm run` without `--dry-run
 - Show `naollm eval` progress: a live line with a spinner and an ETA, and a result line with the model's reply for each case. Add `any_of` expectations, and fix the cases whose expectations rewarded the wrong behavior: "Can you dance?" now expects no tool, and over-limit walking and turning accept any safe answer.
 - Turn model thinking off by default with `llm.reasoning_effort: none`. Report reasoning, tool-call starts, finish reasons and token usage from the client, and never speak reasoning.
 - In `naollm eval`, load the model first and allow 120 s per request, add a verbose trace with reasoning, reply, tool calls and timings, add timing metrics to the final report, fail empty replies, and print a partial report on Ctrl+C.
+- Add an eval matrix config, `tests/eval/eval_config.yaml`, with only the eval-relevant keys and a list of model and reasoning settings, run in turn and compared in one table.
 - Update SPEC.md to record the interim English and motors-off decisions.
 
 Out of scope, and blocked until the battery is replaced: behaviors, gestures, dances, keyframe playback, posture changes, head tracking, `ALAnimatedSpeech`, the `qipkg` deploy and `naollm deploy`. Face recognition is in the separate change `add-faces-consent`.

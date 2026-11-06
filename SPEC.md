@@ -620,6 +620,8 @@ The bridge refuses to start in `event_mode: true` if `persist_transcripts` or `d
 
 Run against each candidate model; target ≥ 90 % correct per profile before the event. The runner loads the model first, waits up to 120 s per request, shows a live progress line with an ETA, and prints each case's result and reply as it finishes; `-v` adds the reasoning, tool calls and timings. The final report adds response time, time to first token, to first answer token and to first tool call, tokens, and counts of reasoning, cut-off, empty and failed replies. An empty reply always fails. Ctrl+C prints the report for the finished cases.
 
+`tests/eval/eval_config.yaml` is a matrix: `base` holds only the eval-relevant config, and `runs` lists `llm` settings (model, `reasoning_effort`, `max_tokens`) to compare. The runner runs each in turn and ends with a comparison table; `--run TEXT` selects runs by label. A plain config is one run.
+
 ### 14.4 On-robot tests
 
 Checklist per phase: connect, speak, each gesture, each dance, posture changes, head look, emergency stop via head touch, fall handling (gently tip over on a mat), low battery simulation via config threshold.

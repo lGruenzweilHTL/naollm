@@ -1,0 +1,57 @@
+# Eval matrix for `naollm eval --config tests/eval/eval_config.yaml` (SPEC §14.3).
+#
+# `base` holds only the keys that change what the model sees or what the
+# safety gate accepts: the LLM settings, the school name in the system prompt,
+# the motion limits in the tool schemas and the gate, and the dance and
+# gesture names. The profiles in tests/eval/profiles add motors, walking and
+# event mode on top. Speech, audio and privacy keys do not affect the eval.
+#
+# Each entry in `runs` is merged onto base.llm and runs all cases once.
+# Runs with thinking on get max_tokens 1024, because thinking uses up 200
+# tokens before the reply starts. Thinking runs are slow on a CPU: expect
+# 15 to 40 minutes each. Pick runs with `--run TEXT` (matches the label).
+base:
+  robot:
+    url: tcp://127.0.0.1:9559   # required by the schema; never contacted, the eval uses the fake robot
+  llm:
+    base_url: http://localhost:11434/v1
+    api_key: ollama
+    temperature: 0.4
+    max_tokens: 200
+  conversation:
+    school_name: our school     # as on the robot today
+  motion:
+    max_turn_deg: 90
+    max_step_cm: 30
+    max_total_displacement_m: 1.0
+    battery_motion_min_pct: 20
+    battery_dance_min_pct: 30
+  dances:
+    macarena: showcase/dance_macarena
+    robot: showcase/dance_robot
+  gestures:
+    wave: animations/Stand/Gestures/Hey_1
+    bow: showcase/gesture_bow
+    nod: animations/Stand/Gestures/Yes_1
+    shake_head: animations/Stand/Gestures/No_3
+    shrug: animations/Stand/Gestures/IDontKnow_1
+    think: animations/Stand/Gestures/Thinking_1
+    celebrate: animations/Stand/Gestures/Enthusiastic_4
+    victory: anim:victory
+  animations_dir: animations
+
+runs:
+  # Thinking off. Models without thinking accept "none" too.
+  - {model: gemma4:e4b, reasoning_effort: none}
+  - {model: gemma4:e2b, reasoning_effort: none}
+  - {model: qwen3:4b, reasoning_effort: none}
+  - {model: qwen3:1.7b, reasoning_effort: none}
+  - {model: qwen2.5:3b, reasoning_effort: none}
+  - {model: granite4:micro, reasoning_effort: none}
+  - {model: phi4-mini, reasoning_effort: none}
+  # Thinking on, for the models that support it (`ollama show` lists "thinking").
+  # gemma4 and qwen3 know only on or off, so any level other than none means on.
+  - {model: gemma4:e4b, reasoning_effort: medium, max_tokens: 1024}
+  - {model: gemma4:e2b, reasoning_effort: medium, max_tokens: 1024}
+  - {model: qwen3:4b, reasoning_effort: medium, max_tokens: 1024}
+  - {model: qwen3:1.7b, reasoning_effort: medium, max_tokens: 1024}

@@ -100,6 +100,10 @@ The client now reports reasoning, the start of each tool call, the finish reason
 
 The eval waits 120 s per request, not the bridge's 20 s, because a cold prompt on this CPU can take longer than 20 s before the first token. It loads the model first, as `naollm run` does, so the first case measures a turn and not a load. A reply with no text and no tool fails every expectation, since the robot would stay silent, and that is what a cut-off thinking reply looks like.
 
+### D15: One eval file compares models and thinking
+
+Comparing models needed a config file per model, and the local `config.yaml` carries speech, audio and robot keys that do not affect the eval. `tests/eval/eval_config.yaml` holds only the keys that change the prompt, the tool schemas or the gate, plus a list of runs that differ only in `llm` settings. Runs merge onto `base.llm`, so a run cannot change the tools or prompt and the rows stay comparable. Thinking runs get `max_tokens: 1024`, because at 200 the thinking used up the budget before a reply; off runs keep 200, as the bridge does. The thinking-capable models are listed by hand from `ollama show`, so the file states what runs. Each run loads and releases its own model, so only one model is in RAM at a time.
+
 ## Risks / Trade-offs
 
 - **Wake word is unreliable** → Head tap and operator key work without it, and all three touch sensors passed. `ears test` tunes the threshold.

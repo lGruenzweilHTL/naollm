@@ -52,3 +52,19 @@ When the operator presses Ctrl+C, the eval SHALL print the accuracy and timing r
 #### Scenario: Interrupted after ten cases
 - **WHEN** the operator presses Ctrl+C during case 11 of 41
 - **THEN** the output says "partial report: 10 of 41 cases ran" and shows the accuracy and timings of those 10
+
+### Requirement: Eval matrix
+The eval SHALL accept a matrix config with only `base` and `runs`. `base` is a config. Each entry of `runs` is a set of `llm` settings with an optional `label`, merged onto `base.llm`. The eval SHALL run all cases once per run, in order, each with its own warm-up, report and model release, and SHALL then print a comparison table with one row per run: accuracy per profile, whether the target was met, the median time to the first answer token, to the first text and for the response, the generation rate, the counts of reasoning, cut-off, empty and failed cases, and the wall time. `--run TEXT` SHALL keep only the runs whose label contains TEXT. A plain config SHALL be one run. The repository SHALL ship `tests/eval/eval_config.yaml` with the candidate models, thinking off for each, and thinking on with `max_tokens: 1024` for the models that support it.
+
+#### Scenario: Compare thinking on and off
+- **WHEN** the operator runs `naollm eval --config tests/eval/eval_config.yaml --run qwen3:4b`
+- **THEN** the eval runs `qwen3:4b` with thinking off, then on, and prints a table with one row for each
+
+#### Scenario: Interrupted matrix
+- **WHEN** the operator presses Ctrl+C during the third of eleven runs
+- **THEN** the eval prints the partial report of the third run and the table for the three runs, starts no further run, and exits with code 130
+
+#### Scenario: Bad matrix
+- **WHEN** a run sets a key that `llm` does not have, or the file has a top-level key other than `base` and `runs`
+- **THEN** the eval refuses the file and names the run or the key
+

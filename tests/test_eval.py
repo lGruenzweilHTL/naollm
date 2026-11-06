@@ -371,3 +371,97 @@ def test_empty_reply_fails_a_no_tool_case(tmp_path):
     first, second = report.outcomes["event_default"]
     assert not first.passed and first.detail == "empty reply, cut off at max_tokens"
     assert second.passed
+
+
+def _matrix_file(tmp_path, runs, **extra):
+    f = tmp_path / "matrix.yaml"
+    f.write_text(yaml.safe_dump(dict({"base": BASE, "runs": runs}, **extra)))
+    return f
+
+
+def test_eval_config_matrix_is_valid():
+    from naollm.eval import load_eval_config
+
+    runs = load_eval_config(ROOT / "tests" / "eval" / "eval_config.yaml")
+    labels = [label for label, _ in runs]
+    assert len(runs) == 11 and len(set(labels)) == 11
+    assert "gemma4:e4b, reasoning off" in labels and "qwen3:1.7b, reasoning on (medium)" in labels
+    for label, cfg in runs:
+        assert cfg["llm"]["max_tokens"] == (1024 if "reasoning on" in label else 200)
+
+
+def test_plain_config_is_one_run():
+    from naollm.eval import load_eval_config
+
+    assert [label for label, _ in load_eval_config(ROOT / "config.example.yaml")] == ["gemma4:e4b, reasoning off"]
+
+
+def test_bad_matrix_is_refused(tmp_path):
+    import pytest
+
+    from naollm.config import ConfigError
+    from naollm.eval import load_eval_config
+
+    with pytest.raises(ConfigError, match="only base and runs"):
+        load_eval_config(_matrix_file(tmp_path, [{"model": "a"}], llm={}))
+    with pytest.raises(ConfigError, match="run 2"):
+        load_eval_config(_matrix_file(tmp_path, [{"model": "a"}, {"model": "b", "nope": 1}]))
+    with pytest.raises(ConfigError, match="runs needs a list"):
+        load_eval_config(_matrix_file(tmp_path, []))
+
+
+def test_matrix_runs_each_setting_and_compares(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    import naollm.eval as ev
+    import naollm.llm.client as client_mod
+
+    seen = []
+
+    def client(cfg, residency=None):
+        seen.append((cfg.model, cfg.reasoning_effort, cfg.max_tokens))
+        text = "Ja." if cfg.model == "good" else ""
+        return TracedClient([[("text", text)]], usage={"prompt_tokens": 9, "completion_tokens": 2})
+
+    monkeypatch.setattr(client_mod, "OpenAIChatClient", client)
+    cases = [{"profile": "event_default", "prompt": "Frage", "expect": {"no_tool": True}}]
+    runs = [{"model": "good", "reasoning_effort": "none"},
+            {"model": "bad", "reasoning_effort": "none"},
+            {"model": "good", "reasoning_effort": "high", "max_tokens": 1024, "label": "good thinking"}]
+    args = SimpleNamespace(cases=str(_cases_file(tmp_path, cases)), profiles=str(PROFILES), verbose=False,
+                           no_warmup=True, timeout=None, run=None, config=str(_matrix_file(tmp_path, runs)))
+    assert ev.run_eval_cli(args) == 1
+    assert seen == [("good", "none", 200), ("bad", "none", 200), ("good", "high", 1024)]
+    out = capsys.readouterr().out
+    assert "eval matrix: 3 runs" in out and "=== run 3/3: good thinking" in out
+    table = out[out.index("comparison of 3 runs"):].splitlines()
+    assert table[1].split()[:3] == ["run", "event_default", "target"]
+    assert "good, reasoning off" in table[2] and "1/1 100%" in table[2] and " met " in table[2]
+    assert "bad, reasoning off" in table[3] and "0/1 0%" in table[3] and "NOT met" in table[3]
+    assert table[4].startswith("  good thinking")
+
+    seen.clear()
+    args.run = ["thinking"]
+    assert ev.run_eval_cli(args) == 0
+    assert seen == [("good", "high", 1024)]
+    args.run = ["nothing"]
+    assert ev.run_eval_cli(args) == 2
+
+
+def test_matrix_interrupt_stops_and_compares_partial(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    import naollm.eval as ev
+    import naollm.llm.client as client_mod
+
+    clients = [TracedClient([[("text", "Ja.")], [("text", "Ja.")]], interrupt_after=1)]
+    monkeypatch.setattr(client_mod, "OpenAIChatClient", lambda cfg, residency=None: clients.pop(0))
+    cases = [{"profile": "event_default", "prompt": f"Frage {i}", "expect": {"no_tool": True}} for i in range(2)]
+    runs = [{"model": "a"}, {"model": "b"}]
+    args = SimpleNamespace(cases=str(_cases_file(tmp_path, cases)), profiles=str(PROFILES), verbose=False,
+                           no_warmup=True, timeout=None, run=None, config=str(_matrix_file(tmp_path, runs)))
+    assert ev.run_eval_cli(args) == 130
+    captured = capsys.readouterr()
+    assert "matrix stopped: 1 run not started" in captured.err
+    assert "comparison of 1 run" in captured.out
+    assert "a, reasoning off (partial)" in captured.out

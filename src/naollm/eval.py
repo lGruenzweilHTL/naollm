@@ -23,8 +23,8 @@ from naollm.llm.client import ChatClient, LLMUnavailable, ToolCall
 from naollm.llm.prompts import system_prompt
 
 TARGET_ACCURACY = 0.9
-EVAL_TIMEOUT_S = 120.0
-STREAMED_MIN_S = 0.5     # shorter output says nothing about the generation rate   # per request; a CPU-only laptop needs far more than the bridge's 20 s
+EVAL_TIMEOUT_S = 120.0   # per request; a CPU-only laptop needs far more than the bridge's 20 s
+STREAMED_MIN_S = 0.5     # shorter output says nothing about the generation rate
 
 
 @dataclass
@@ -468,20 +468,38 @@ def print_metrics(outcomes: List[Outcome], model: str = "", reasoning_effort: Op
         in_tokens = [o.usage.get("prompt_tokens", 0) for o in used]
         print(f"  tokens: {statistics.mean(out_tokens):.0f} out and {statistics.mean(in_tokens):.0f} in "
               f"per case on average")
-        # Ollama sends a tool call in one piece, so only output that streamed for a while shows a rate.
-        streamed = [o for o in used if o.timing.first_token is not None
-                    and o.timing.total - o.timing.first_token >= STREAMED_MIN_S]
-        if streamed:
-            rate = (sum(o.usage.get("completion_tokens", 0) for o in streamed)
-                    / sum(o.timing.total - o.timing.first_token for o in streamed))
-            print(f"  generation: {rate:.1f} tokens/s, from the {len(streamed)} cases that streamed "
+        rate = _generation_rate(used)
+        if rate is not None:
+            print(f"  generation: {rate[0]:.1f} tokens/s, from the {rate[1]} cases that streamed "
                   f"for {STREAMED_MIN_S:g} s or more")
-    thinking = sum(1 for o in timed if o.reasoning)
-    cut = sum(1 for o in timed if o.finish == "length")
-    empty = sum(1 for o in timed if not o.reply.strip() and not o.calls)
-    errors = n - len(timed)
-    print(f"  reasoning in {thinking} of {len(timed)}, cut off at max_tokens {cut}, "
-          f"empty replies {empty}, errors and timeouts {errors}")
+    counts = _counts(outcomes)
+    print(f"  reasoning in {counts['reasoning']} of {len(timed)}, cut off at max_tokens {counts['cut']}, "
+          f"empty replies {counts['empty']}, errors and timeouts {counts['errors']}")
+
+
+def _generation_rate(outcomes: List[Outcome]):
+    """(tokens per second, cases used), or None.
+
+    Ollama sends a tool call in one piece, so only output that streamed for a
+    while shows a rate.
+    """
+    streamed = [o for o in outcomes if o.usage and not o.error and o.timing.first_token is not None
+                and o.timing.total - o.timing.first_token >= STREAMED_MIN_S]
+    if not streamed:
+        return None
+    rate = (sum(o.usage.get("completion_tokens", 0) for o in streamed)
+            / sum(o.timing.total - o.timing.first_token for o in streamed))
+    return rate, len(streamed)
+
+
+def _counts(outcomes: List[Outcome]) -> Dict[str, int]:
+    timed = [o for o in outcomes if not o.error]
+    return {
+        "reasoning": sum(1 for o in timed if o.reasoning),
+        "cut": sum(1 for o in timed if o.finish == "length"),
+        "empty": sum(1 for o in timed if not o.reply.strip() and not o.calls),
+        "errors": len(outcomes) - len(timed),
+    }
 
 
 def print_report(report: Report, verbose: bool = False, partial: bool = False,
@@ -530,24 +548,132 @@ async def _warm_up(llm, progress: Progress):
     return residency
 
 
-def run_eval_cli(args) -> int:
-    from naollm.llm.client import OpenAIChatClient
+@dataclass
+class RunResult:
+    """One model and setting of an eval run."""
 
+    label: str
+    report: Report
+    interrupted: bool = False
+    wall: float = 0.0
+
+
+def run_label(llm) -> str:
+    effort = llm.reasoning_effort
+    state = "unset" if effort is None else "off" if effort == "none" else f"on ({effort})"
+    return f"{llm.model}, reasoning {state}"
+
+
+def load_eval_config(path: str | Path):
+    """Reads an eval config. Returns [(label, config dict)], one entry per run.
+
+    A plain config is one run. A matrix config holds `base` (a config) and
+    `runs` (a list of `llm` settings, each merged onto base.llm, with an
+    optional `label`).
+    """
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path}: top level must be a mapping")
+    if "runs" not in data:
+        return [(run_label(parse_config(data).llm), data)]
+    unknown = sorted(set(data) - {"base", "runs"})
+    if unknown:
+        raise ConfigError(f"{path}: a matrix config holds only base and runs, not {', '.join(unknown)}")
+    base, runs = data.get("base") or {}, data["runs"]
+    if not isinstance(runs, list) or not runs or not all(isinstance(r, dict) for r in runs):
+        raise ConfigError(f"{path}: runs needs a list of llm settings")
+    out = []
+    for i, run in enumerate(runs):
+        run = dict(run)
+        label = run.pop("label", None)
+        merged = deep_merge(base, {"llm": run})
+        try:
+            llm = parse_config(merged).llm
+        except ConfigError as err:
+            raise ConfigError(f"{path}: run {i + 1}: {err}") from None
+        out.append((str(label) if label else run_label(llm), merged))
+    return out
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+def print_comparison(results: List[RunResult]) -> None:
+    """One row per run: accuracy per profile, median timings and problem counts."""
+    profiles = list(dict.fromkeys(p for r in results for p in r.report.outcomes))
+    header = (["run"] + profiles + ["target", "first answer", "first text", "response", "tokens/s",
+                                    "reasoning", "cut off", "empty", "errors", "wall"])
+    rows = []
+    for r in results:
+        outcomes = r.report.all()
+        timed = [o for o in outcomes if not o.error]
+        row = [r.label + (" (partial)" if r.interrupted else "")]
+        for p in profiles:
+            items = r.report.outcomes.get(p, [])
+            row.append(f"{sum(o.passed for o in items)}/{len(items)} {r.report.accuracy(p):.0%}" if items else "-")
+        row.append("-" if r.interrupted else "met" if r.report.passed else "NOT met")
+        for attr in ("first_answer", "first_text", "total"):
+            values = [getattr(o.timing, attr) for o in timed if getattr(o.timing, attr) is not None]
+            row.append(f"{statistics.median(values):.1f}s" if values else "-")
+        rate = _generation_rate(outcomes)
+        row.append(f"{rate[0]:.1f}" if rate else "-")
+        counts = _counts(outcomes)
+        row += [str(counts[k]) for k in ("reasoning", "cut", "empty", "errors")]
+        row.append(f"{r.wall:.0f}s")
+        rows.append(row)
+    widths = [max(len(row[i]) for row in [header] + rows) for i in range(len(header))]
+    print(f"comparison of {_plural(len(results), 'run')}; times are medians, target {TARGET_ACCURACY:.0%} per profile")
+    for row in [header] + rows:
+        cells = [c.ljust(w) if i == 0 else c.rjust(w) for i, (c, w) in enumerate(zip(row, widths))]
+        print("  " + "  ".join(cells).rstrip())
+
+
+def run_eval_cli(args) -> int:
     cases_path = Path(args.cases)
     profiles_dir = Path(args.profiles) if args.profiles else cases_path.parent / "profiles"
-    base = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
     cases = load_cases(cases_path)
+    runs = load_eval_config(args.config)
+    wanted = getattr(args, "run", None)
+    if wanted:
+        runs = [(label, cfg) for label, cfg in runs if any(w in label for w in wanted)]
+        if not runs:
+            print(f"no run matches {', '.join(wanted)}", file=sys.stderr)
+            return 2
+    if len(runs) == 1:
+        result = _run_once(runs[0][1], cases, profiles_dir, args)
+        if result.interrupted:
+            return 130
+        return 0 if result.report.passed else 1
+    print(f"eval matrix: {_plural(len(runs), 'run')} from {args.config}", flush=True)
+    results: List[RunResult] = []
+    for i, (label, cfg) in enumerate(runs, 1):
+        print(f"\n=== run {i}/{len(runs)}: {label}", flush=True)
+        result = _run_once(cfg, cases, profiles_dir, args, label)
+        results.append(result)
+        if result.interrupted:
+            print(f"matrix stopped: {_plural(len(runs) - i, 'run')} not started", file=sys.stderr)
+            break
+    print()
+    print_comparison(results)
+    if results[-1].interrupted:
+        return 130
+    return 0 if all(r.report.passed for r in results) else 1
+
+
+def _run_once(base: Dict[str, Any], cases: List[Case], profiles_dir: Path, args,
+              label: str = "") -> RunResult:
+    from naollm.llm.client import OpenAIChatClient
+
     llm = parse_config(base).llm
     timeout = getattr(args, "timeout", None) or EVAL_TIMEOUT_S
     verbose = bool(getattr(args, "verbose", False))
     profiles = len(dict.fromkeys(c.profile for c in cases))
 
-    def n(count: int, word: str) -> str:
-        return f"{count} {word}" + ("" if count == 1 else "s")
-
-    print(f"eval: {n(len(cases), 'case')} in {n(profiles, 'profile')}, model {llm.model} at {llm.base_url}, "
+    print(f"eval: {_plural(len(cases), 'case')} in {_plural(profiles, 'profile')}, model {llm.model} "
+          f"at {llm.base_url}, "
           f"reasoning_effort {llm.reasoning_effort if llm.reasoning_effort is not None else 'unset'}, "
-          f"timeout {timeout:g} s per request", flush=True)
+          f"timeout {timeout:g} s per request, max_tokens {llm.max_tokens}", flush=True)
     progress = Progress(len(cases), verbose=verbose)
     report = Report(planned=len(cases))
     held: List[Any] = []
@@ -562,6 +688,7 @@ def run_eval_cli(args) -> int:
         await evaluate(cases, base, profiles_dir, factory, progress, report)
 
     interrupted = False
+    started = time.monotonic()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -575,9 +702,8 @@ def run_eval_cli(args) -> int:
                 print(f"model {llm.model} unloaded")
             except Exception as err:   # report and go on; the eval result matters more
                 print(f"model unload failed: {err}", file=sys.stderr)
+    wall = time.monotonic() - started
     print()
     print_report(report, verbose=False, partial=interrupted, model=llm.model,
                  reasoning_effort=llm.reasoning_effort)
-    if interrupted:
-        return 130
-    return 0 if report.passed else 1
+    return RunResult(label or run_label(llm), report, interrupted, wall)
