@@ -1,0 +1,32 @@
+# Free-talk sentences for spike/record_clips.py, on top of the English eval
+# cases in tests/eval/tool_calls.yaml. No expect: stt_bench.py scores these on
+# word error rate only. They cover what eval prompts do not: long sentences,
+# numbers, names, robot words and quick questions.
+- lang: en
+  prompt: "Hello robot, what is your name?"
+- lang: en
+  prompt: "How old are you?"
+- lang: en
+  prompt: "Tell me a joke about robots."
+- lang: en
+  prompt: "What can you do?"
+- lang: en
+  prompt: "Who built you, and how long did it take?"
+- lang: en
+  prompt: "Do you like being a robot at our school?"
+- lang: en
+  prompt: "What is twelve times seven?"
+- lang: en
+  prompt: "My name is Alex and I am in the robotics club."
+- lang: en
+  prompt: "How many motors and sensors do you have in your body?"
+- lang: en
+  prompt: "Can you explain what artificial intelligence is in one sentence?"
+- lang: en
+  prompt: "What is your favourite colour?"
+- lang: en
+  prompt: "Thank you, goodbye!"
+- lang: en
+  prompt: "Yes."
+- lang: en
+  prompt: "No, thanks."

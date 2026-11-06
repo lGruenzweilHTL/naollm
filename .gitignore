@@ -7,3 +7,10 @@ __pycache__/
 dist/
 build/
 *.pkg
+
+# Production config
+*config*.yaml
+!config.example.yaml
+
+# Voice recordings for spike/stt_bench.py; never commit them.
+spike/clips/
