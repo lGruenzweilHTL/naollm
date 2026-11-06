@@ -9,9 +9,7 @@ build/
 *.pkg
 
 # Production config
-*config*.yaml
-!config.example.yaml
-!tests/eval/eval_config.yaml
+/config.yaml
 
 # Voice recordings for spike/stt_bench.py; never commit them.
 spike/clips/
