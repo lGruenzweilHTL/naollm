@@ -65,13 +65,15 @@ class UtteranceDetector:
     """Feed audio; `feed` returns why the utterance ended, once it has. Times are audio time."""
 
     def __init__(self, is_speech: SpeechTest, silence_s: float, max_utterance_s: float,
-                 no_speech_s: float) -> None:
+                 no_speech_s: float, start_frames: int = SPEECH_START_FRAMES,
+                 pre_roll_frames: int = PRE_ROLL_FRAMES) -> None:
         self.is_speech = is_speech
         self.silence_frames = self._frames(silence_s)
         self.max_frames = self._frames(max_utterance_s)
         self.no_speech_frames = self._frames(no_speech_s)
+        self.start_frames = start_frames
         self._chunker = Rechunker()
-        self._pre_roll: Deque[bytes] = deque(maxlen=PRE_ROLL_FRAMES)
+        self._pre_roll: Deque[bytes] = deque(maxlen=max(pre_roll_frames, start_frames))
         self._speech = bytearray()
         self._waited = 0
         self._run = 0
@@ -109,7 +111,7 @@ class UtteranceDetector:
             self._waited += 1
             self._pre_roll.append(frame)
             self._run = self._run + 1 if speech else 0
-            if self._run >= SPEECH_START_FRAMES:
+            if self._run >= self.start_frames:
                 self._started = True
                 for old in self._pre_roll:
                     self._speech.extend(old)

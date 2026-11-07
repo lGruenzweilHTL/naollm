@@ -113,6 +113,25 @@ def test_pre_roll_keeps_the_start():
     assert any(d.audio)
 
 
+def test_pre_roll_length_can_be_set():
+    lead = {}
+    for frames in (2, 4, 10):
+        d = UtteranceDetector(energy_test, 0.8, 15.0, 5.0, pre_roll_frames=frames)
+        feed_all(d, silence(1.0) + tone(1.0) + silence(1.0))
+        lead[frames] = len(d.audio) - len(d.audio.lstrip(b"\0"))
+    assert lead[10] - lead[4] == 6 * FRAME_BYTES
+    # The pre-roll always holds the start frames, so a shorter one keeps the start too.
+    assert lead[2] == lead[4] - FRAME_BYTES
+
+
+def test_start_frames_can_be_set():
+    burst = tone(0.09) + silence(1.0)  # three frames of sound
+    strict = UtteranceDetector(energy_test, 0.5, 15.0, 1.0, start_frames=4)
+    assert feed_all(strict, burst) == End.NO_SPEECH
+    loose = UtteranceDetector(energy_test, 0.5, 15.0, 1.0, start_frames=3)
+    assert feed_all(loose, burst) == End.SILENCE
+
+
 def test_short_speech_length_is_reported():
     d = detector()
     feed_all(d, tone(0.3) + silence(1.0))

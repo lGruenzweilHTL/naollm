@@ -113,8 +113,8 @@ def load_clips(folders: List[Path], tag: Optional[str]) -> List[Clip]:
         if not manifest.exists():
             raise SystemExit(f"{manifest} not found; record clips with spike/record_clips.py")
         for item in yaml.safe_load(manifest.read_text(encoding="utf-8")) or []:
-            if tag and item.get("tag") != tag:
-                continue
+            if item.get("raw") or (tag and item.get("tag") != tag):
+                continue  # raw clips are uncut streams, for spike/vad_tune.py
             path = folder / item["file"]
             with wave.open(str(path), "rb") as w:
                 if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (RATE, 1, 2):
