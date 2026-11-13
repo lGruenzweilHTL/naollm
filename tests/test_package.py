@@ -1,5 +1,6 @@
 """`naollm deploy` with a stubbed qipkg (package-deploy spec)."""
 
+import re
 import shutil
 from pathlib import Path
 
@@ -39,6 +40,9 @@ AUTO_START = """<?xml version='1.0' encoding='UTF-8'?>
 def project(tmp_path):
     target = tmp_path / "showcase"
     shutil.copytree(PROJECT, target)
+    # The tests count from 0.0.1, whatever version the real project is at.
+    manifest = target / "manifest.xml"
+    manifest.write_text(re.sub(r'version="[0-9.]+"', 'version="0.0.1"', manifest.read_text(), count=1))
     return target
 
 

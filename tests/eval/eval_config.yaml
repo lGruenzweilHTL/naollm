@@ -27,11 +27,13 @@ base:
     battery_motion_min_pct: 20
     battery_dance_min_pct: 30
   dances:
-    macarena: showcase/dance_macarena
-    robot: showcase/dance_robot
+    macarena: anim:macarena                # keyframe file animations/macarena.anim.yaml, arms only
+    gangnam: showcase/dance_gangnam         # Choregraphe package choregraphe/showcase, whole body, no music
+    disco: showcase/dance_disco             # Choregraphe package choregraphe/showcase, whole body, no music
+    robot: animations/Stand/Waiting/Robot_1 # built into NAOqi
   gestures:
     wave: animations/Stand/Gestures/Hey_1
-    bow: showcase/gesture_bow
+    bow: animations/Stand/Gestures/BowShort_1
     nod: animations/Stand/Gestures/Yes_1
     shake_head: animations/Stand/Gestures/No_3
     shrug: animations/Stand/Gestures/IDontKnow_1

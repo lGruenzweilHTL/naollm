@@ -316,6 +316,7 @@ async def evaluate(
 ) -> Report:
     """Runs the cases. A given `report` fills as cases finish, so it holds a partial result on Ctrl+C."""
     from naollm.bridge import Bridge
+    from naollm.main import keyframe_loader
     from naollm.robot.fake_adapter import FakeRobot
     from naollm.state import State
 
@@ -325,7 +326,8 @@ async def evaluate(
         cfg = profile_config(base, profiles_dir, profile)
         targets = [t for t in list(cfg.dances.values()) + list(cfg.gestures.values()) if not t.startswith("anim:")]
         robot = FakeRobot(installed_behaviors=targets, time_scale=0)
-        bridge = Bridge(cfg, robot)
+        # Same keyframe rules as a real run: valid files only, and reviewed ones in event mode.
+        bridge = Bridge(cfg, robot, keyframe_loader=keyframe_loader(cfg, lambda: None))
         bridge.startup(greet=False)
         client = client_factory(cfg)
         results = report.outcomes.setdefault(profile, [])

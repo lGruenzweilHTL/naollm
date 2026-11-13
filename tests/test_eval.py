@@ -13,7 +13,7 @@ PROFILES = ROOT / "tests" / "eval" / "profiles"
 
 def test_case_file_is_valid():
     cases = load_cases(ROOT / "tests" / "eval" / "tool_calls.yaml")
-    assert len(cases) == 72
+    assert len(cases) == 76
     assert {c.profile for c in cases} == {"event_default", "walking_on", "age_game_on"}
     assert {c.lang for c in cases} == {"de", "en"}
 
@@ -583,3 +583,32 @@ def test_result_path_is_safe():
 
     assert result_path("gemma4:e4b", "/x").name == "gemma4_e4b.json"
     assert result_path("../evil/model", "/x").parent == Path("/x")
+
+
+def test_keyframe_animations_are_offered_like_in_a_real_run(tmp_path):
+    """`anim:` dances and gestures reach the tool enums, so the eval sees what the robot offers."""
+    # An arms-only stand-in for macarena, so the test does not depend on its review status.
+    victory = (ROOT / "animations" / "victory.anim.yaml").read_text()
+    (tmp_path / "victory.anim.yaml").write_text(victory)
+    (tmp_path / "macarena.anim.yaml").write_text(victory.replace("name: victory", "name: macarena"))
+    base = dict(BASE, event_mode=False, animations_dir=str(tmp_path))
+    cases_seen = {}
+
+    def factory(cfg):
+        cases_seen["client"] = ScriptedClient([["Gern."]])
+        return cases_seen["client"]
+
+    cases = [{"profile": "event_default", "prompt": "Hallo!", "expect": {"no_tool": True}}]
+    asyncio.run(evaluate(load_cases_from(cases), base, PROFILES, factory))
+    tools = {t["function"]["name"]: t["function"] for t in cases_seen["client"].requests[0]["tools"]}
+    assert "macarena" in tools["dance"]["parameters"]["properties"]["name"]["enum"]
+    assert "victory" in tools["play_gesture"]["parameters"]["properties"]["name"]["enum"]
+
+
+def load_cases_from(cases):
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "cases.yaml"
+        path.write_text(yaml.safe_dump(cases))
+        return load_cases(path)

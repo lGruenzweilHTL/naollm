@@ -13,3 +13,6 @@ build/
 
 # Voice recordings for spike/stt_bench.py; never commit them.
 spike/clips/
+
+# Music clips for the showcase dances: copyrighted, never in this public repo.
+choregraphe/showcase/**/*.wav

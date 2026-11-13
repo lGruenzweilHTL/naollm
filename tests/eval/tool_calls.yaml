@@ -1,7 +1,7 @@
 # Tool-call evaluation cases (SPEC §14.3). Run: naollm eval --config config.yaml
 # expect: {tool, args (subset)} | {no_tool: true} | {tool, rejected: true|false}
 #         | {any_of: [expectation, ...]}  (passes when one of them is met)
-# Dance names assume the dances from config.example.yaml (macarena, robot).
+# Dance names assume the dances from config.example.yaml (macarena, gangnam, disco, robot).
 # A case without `lang` is German. Every German case has an English counterpart,
 # and the report shows the score per profile and per language.
 #
@@ -17,6 +17,12 @@
 - profile: event_default
   prompt: "Tanz bitte die Macarena!"
   expect: {tool: dance, args: {name: macarena}}
+- profile: event_default
+  prompt: "Mach mal Gangnam Style!"
+  expect: {tool: dance, args: {name: gangnam}}
+- profile: event_default
+  prompt: "Zeig uns einen Disco-Tanz."
+  expect: {tool: dance, args: {name: disco}}
 - profile: event_default
   prompt: "Wink mal!"
   expect: {tool: play_gesture, args: {name: wave}}
@@ -128,6 +134,14 @@
   lang: en
   prompt: "Dance the Macarena, please!"
   expect: {tool: dance, args: {name: macarena}}
+- profile: event_default
+  lang: en
+  prompt: "Do the Gangnam Style!"
+  expect: {tool: dance, args: {name: gangnam}}
+- profile: event_default
+  lang: en
+  prompt: "Show us a disco dance."
+  expect: {tool: dance, args: {name: disco}}
 - profile: event_default
   lang: en
   prompt: "Bow to the audience."
