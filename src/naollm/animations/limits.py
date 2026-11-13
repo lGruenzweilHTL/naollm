@@ -50,14 +50,17 @@ HAND_JOINTS = frozenset({"LHand", "RHand"})
 
 # Approximate joint angles (deg) of the predefined postures.
 POSTURES: Dict[str, Dict[str, float]] = {
+    # ALRobotPosture "Stand", commanded angles read on a NAO 6 with NAOqi 2.8.7.8 (2026-11-13),
+    # rounded and made symmetric. The legs are almost straight; the bent-knee values
+    # (hip -25, knee 40, ankle -20) belong to "StandInit", not to "Stand".
     "Stand": {
-        "HeadYaw": 0.0, "HeadPitch": 0.0,
-        "LShoulderPitch": 85.0, "LShoulderRoll": 10.0, "LElbowYaw": -70.0, "LElbowRoll": -25.0, "LWristYaw": 0.0,
-        "RShoulderPitch": 85.0, "RShoulderRoll": -10.0, "RElbowYaw": 70.0, "RElbowRoll": 25.0, "RWristYaw": 0.0,
-        "LHipYawPitch": 0.0, "LHipRoll": 0.0, "LHipPitch": -25.0, "LKneePitch": 40.0,
-        "LAnklePitch": -20.0, "LAnkleRoll": 0.0,
-        "RHipYawPitch": 0.0, "RHipRoll": 0.0, "RHipPitch": -25.0, "RKneePitch": 40.0,
-        "RAnklePitch": -20.0, "RAnkleRoll": 0.0,
+        "HeadYaw": 0.0, "HeadPitch": -10.0,
+        "LShoulderPitch": 85.0, "LShoulderRoll": 10.0, "LElbowYaw": -70.0, "LElbowRoll": -30.0, "LWristYaw": 0.0,
+        "RShoulderPitch": 85.0, "RShoulderRoll": -10.0, "RElbowYaw": 70.0, "RElbowRoll": 30.0, "RWristYaw": 0.0,
+        "LHipYawPitch": -9.0, "LHipRoll": 5.0, "LHipPitch": 10.0, "LKneePitch": -5.0,
+        "LAnklePitch": 4.0, "LAnkleRoll": -5.0,
+        "RHipYawPitch": -9.0, "RHipRoll": -5.0, "RHipPitch": 10.0, "RKneePitch": -5.0,
+        "RAnklePitch": 4.0, "RAnkleRoll": 5.0,
     },
     "Crouch": {
         "HeadYaw": 0.0, "HeadPitch": 0.0,

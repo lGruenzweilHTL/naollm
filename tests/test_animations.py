@@ -275,3 +275,13 @@ def test_interrupted_playback(make_bridge, robot, tmp_path):
     assert robot.balancer is False
     assert b.state.state == State.STOPPED
     assert robot.posture == "Crouch"
+
+
+def test_stand_reference_has_straight_legs():
+    """Stand is NAOqi's straight-leg posture; a leg track that starts at StandInit angles tips the robot."""
+    from naollm.animations.limits import builtin_limits
+
+    stand = builtin_limits().postures["Stand"]
+    for side in "LR":
+        assert abs(stand[f"{side}KneePitch"]) < 10
+        assert stand[f"{side}HipPitch"] > 0 and stand[f"{side}AnklePitch"] > 0
