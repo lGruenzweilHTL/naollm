@@ -19,7 +19,7 @@ from naollm.robot.qi_adapter import QiRobot
 from qi_double import QiDouble
 
 ROOT = Path(__file__).resolve().parents[1]
-URL = "tcp://10.0.0.135:9559"
+URL = "tcp://10.0.0.135:9561"
 EN = dict(robot={"url": URL, "language": "English", "battery_reliable": False},
           stt={"languages": ["en"], "fallback_language": "en"},
           audio={"wake_language": "English", "wake_words": ["Hey NAO"], "wake_threshold": 0.4},
@@ -79,8 +79,10 @@ def test_unreachable_robot(tmp_path, double, real):
 
 def test_url_forms():
     assert robot_url("10.0.0.135") == URL
-    assert robot_url("nao.local") == "tcp://nao.local:9559"
+    assert robot_url("nao.local") == "tcp://nao.local:9561"
     assert robot_url(URL) == URL
+    # A robot on NAOqi before 2.8.7 still listens on 9559; a full URL keeps its port.
+    assert robot_url("tcp://10.0.0.135:9559") == "tcp://10.0.0.135:9559"
 
 
 # -- languages -------------------------------------------------------------

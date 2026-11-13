@@ -9,7 +9,7 @@
 #   audio.wake_language: English, audio.wake_words: ["Hey NAO"].
 # After any language change, tune the threshold with `ears test` and run `naollm init`.
 robot:
-  url: tcp://192.168.8.20:9559
+  url: tcp://192.168.8.20:9561   # NAOqi 2.8.7 and later; 9559 before 2.8.7
   language: German            # default turn language: German | English
   battery_reliable: false     # this robot's battery reads 100 % whatever its charge
   # listen_ip: 192.168.8.10   # this laptop's address, if remote audio does not arrive

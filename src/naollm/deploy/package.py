@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 from urllib.parse import urlparse
 
-from naollm.config import Config
+from naollm.config import Config, robot_url
 
 PROJECT_DIR = Path("choregraphe") / "showcase"
 PML = "showcase.pml"
@@ -138,12 +138,19 @@ def expected_behaviors(config: Config) -> List[str]:
     return sorted({t for t in targets if t.startswith(PACKAGE_ID + "/")})
 
 
+def naoqi_url(host: str, config: Config) -> str:
+    """The configured URL when `host` is the configured robot, so its port is kept."""
+    if urlparse(config.robot.url).hostname == host:
+        return config.robot.url
+    return robot_url(host)
+
+
 def installed_from_robot(config: Config, host: str) -> List[str]:
     """Read-only: connects with motors off, whatever the config says."""
     from naollm.robot.qi_adapter import QiRobot
 
     robot = QiRobot(listen_ip=config.robot.listen_ip)
-    robot.connect(f"tcp://{host}:9559")
+    robot.connect(naoqi_url(host, config))
     try:
         return robot.motion.installed_behaviors()
     finally:

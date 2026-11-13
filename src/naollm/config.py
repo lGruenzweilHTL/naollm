@@ -13,6 +13,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
+# NAOqi 2.8.7 moved the network port from 9559 to 9561; older robots still use 9559.
+NAOQI_PORT = 9561
+
+
+def robot_url(robot: str) -> str:
+    """A qi URL for an IP, hostname or full URL; a full URL keeps its own port."""
+    return robot if "://" in robot else f"tcp://{robot}:{NAOQI_PORT}"
+
+
 class ConfigError(Exception):
     """Raised when a configuration file cannot be loaded or is invalid."""
 

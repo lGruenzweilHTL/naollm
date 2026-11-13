@@ -21,7 +21,7 @@ import yaml
 
 from naollm.animations.library import find_profile, load_library
 from naollm.animations.limits import HAND_JOINTS, load_limits
-from naollm.config import Config
+from naollm.config import Config, robot_url
 from naollm.robot.adapter import RobotInfo
 
 PASS = "pass"
@@ -319,10 +319,6 @@ def _ask(question: str) -> Optional[str]:
         return input(question)
     except EOFError:
         return None
-
-
-def robot_url(robot: str) -> str:
-    return robot if "://" in robot else f"tcp://{robot}:9559"
 
 
 def run_init_cli(args: argparse.Namespace, config: Config, robot: Any = None) -> int:

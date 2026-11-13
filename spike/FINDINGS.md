@@ -197,3 +197,17 @@ Checked on 2026-11-10 on the operator laptop, Ollama 0.40.14.
 - The miss: "Kannst du schätzen, wie alt ich bin?" got no tool, so the model answered in text. It never called `guess_age` for a question about the robot's own age.
 - Median response 9.2 s; the first case paid 45 s for a cold prompt.
 - This meets the 90 % profile target, but German is below it. Run the full eval before an event with the game on; a prompt tweak for German may be needed.
+
+## NAOqi 2.8.7.8 on Margaret and Konrad
+
+2026-11-13. The user updated both NAO 6 robots, Margaret (10.0.0.200, body id `P0000073A07S94E00048`) and Konrad (10.0.0.251, body id `P0000073A05S88M00001`), to NAOqi 2.8.7.8. Only read-only calls were made; no motor, speech or microphone use.
+
+- **German is installed on both.** `ALTextToSpeech` and `ALSpeechRecognition` each list German, English, Japanese and Chinese. The German voice is `Julia22Enhanced`. `naollm init --only languages` passes on both with the bilingual configuration (`TTS English, German; ASR German`).
+- **Port 9559 is gone.** Maxtronics says NAOqi moved from 9559 to 9561 ([SW update notice](https://maxtronics.com/en/new-sw-update-nao6/)). `qi` 3.1.5 from pip connects to `tcp://<robot>:9561` with no login and no code change apart from the port. The bridge's default port is now 9561.
+- **Security choice.** Robots on 2.8.7.6 or later are set up as an "open" or a "closed" platform. In closed mode, access goes through an SSH tunnel as user `nao` to the robot's own `127.0.0.1:9561` ([SSH tunnel guide](https://maxtronics.com/ssh-tunnel-guide/)). While a robot was in closed mode, its network port 9561 accepted TCP connections and then never answered: not to `qi`, a TLS hello, HTTP or an SSH greeting. Port 9559 was closed.
+- **The change needs a reboot.** After the user switched Margaret to open in Robot Settings, Robot Settings could no longer connect to her and her port 9561 stayed silent. After a reboot, her ServiceDirectory listened on `tcp://127.0.0.1:9561` and `tcp://10.0.0.200:9561`, and `qi` connected. Konrad's ServiceDirectory listens on `tcp://127.0.0.1:9559`, and his network port 9561 forwards to it; both forms work for the bridge.
+- **The audio callback path works.** With `--qi-listen-url=tcp://10.0.0.165:0`, a dummy service registered on the laptop was called from the robot side on both robots. No audio was streamed.
+- **The web page gateway needs no login.** The robot web page's qimessaging socket.io gateway on port 80 (`/libs/qimessaging/2/socket.io/`) accepts calls to any service without credentials; only the page's JavaScript files ask for a login. Anyone on the robot's network can call NAOqi this way, motion included. The robots therefore stay on their own Wi-Fi at the event.
+- **Batteries.** The user reports a working full battery in both. The readings move: Margaret went from 100 % to 89 % in about 40 minutes on battery at about 0.78 A while idle; Konrad read 97 % at 1.1 A.
+- **Autonomous Life.** Before the reboot Margaret was in `safeguard`; after it, `disabled`. Konrad is in `solitary`.
+- **Behaviors.** Both have 901 installed behaviors: the standard `animations/Stand`, `Sit` and `SitOnPod` sets, system packages, and no `showcase` package. The configured `showcase/gesture_bow`, `showcase/dance_macarena` and `showcase/dance_robot` are missing on both until `naollm deploy`.

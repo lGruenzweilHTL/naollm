@@ -12,6 +12,7 @@ from naollm.deploy.package import (
     auto_start_behaviors,
     bump_patch,
     parse_manifest,
+    naoqi_url,
     robot_host,
     with_version,
 )
@@ -149,6 +150,12 @@ def test_robot_defaults_to_the_host_in_the_url():
     assert robot_host(None, config) == "10.0.0.2"
     assert robot_host("nao.local", config) == "nao.local"
     assert robot_host("tcp://10.0.0.9:9559", config) == "10.0.0.9"
+
+
+def test_naoqi_url_keeps_the_configured_port_for_the_configured_robot():
+    config = make_config(robot={"url": "tcp://10.0.0.2:9559"})
+    assert naoqi_url("10.0.0.2", config) == "tcp://10.0.0.2:9559"
+    assert naoqi_url("10.0.0.9", config) == "tcp://10.0.0.9:9561"
 
 
 def test_version_helpers():

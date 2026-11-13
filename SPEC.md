@@ -55,7 +55,7 @@ The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. Th
 ## 2. System overview
 
 ```
-┌──────────────────────┐   qi / TCP 9559   ┌─────────────────────────────┐   HTTP (localhost)   ┌──────────────┐
+┌──────────────────────┐   qi / TCP 9561   ┌─────────────────────────────┐   HTTP (localhost)   ┌──────────────┐
 │ NAO 6 (NAOqi 2.8)    │◄─────────────────►│ Bridge (laptop, Python 3)   │◄────────────────────►│ Ollama       │
 │ - TTS / animated     │                   │ - audio in + STT            │  OpenAI-compatible   │ gemma4:e4b   │
 │   speech             │                   │ - conversation loop         │  /v1/chat/completions│ (or any      │
@@ -73,7 +73,7 @@ The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. Th
 ### 2.1 How the parts run together
 
 1. **Before the event:** Choregraphe is used to build animations (dances, bow, …). They are installed on the robot via *Robot applications → Package and install*. After that, Choregraphe can be closed; the behaviors live on the robot under paths like `showcase/dance_macarena`.
-2. **During the event:** the bridge connects to NAOqi on port 9559 using the Python `qi` library. It calls robot services (`ALAnimatedSpeech`, `ALBehaviorManager`, `ALMotion`, …) directly.
+2. **During the event:** the bridge connects to NAOqi on port 9561 (9559 before NAOqi 2.8.7) using the Python `qi` library. It calls robot services (`ALAnimatedSpeech`, `ALBehaviorManager`, `ALMotion`, …) directly.
 3. **Per turn:** speech → text → LLM → (optional tool calls → safety gate → robot) → spoken answer.
 
 ### 2.2 One conversation turn (sequence)
