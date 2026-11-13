@@ -57,7 +57,12 @@ def test_keyframe_gesture_in_enum(make_bridge):
 def test_successful_gesture(bridge, robot):
     r = bridge.gate.check_and_run("play_gesture", {"name": "wave"})
     assert r.as_dict() == {"ok": True, "result": "finished"}
-    assert robot.actions[-1].args == {"path": "animations/Stand/Gestures/Hey_1"}
+    played = [a for a in robot.actions if a.name == "play_animation"]
+    assert played[-1].args == {"path": "animations/Stand/Gestures/Hey_1"}
+    # head tracking pauses for the gesture and comes back after it
+    tracking = [a.args["enabled"] for a in robot.actions if a.name == "set_tracking"]
+    assert tracking == [False, True]
+    assert robot.action_names().index("set_tracking") < robot.action_names().index("play_animation")
 
 
 def test_custom_gesture_runs_behavior(bridge, robot):

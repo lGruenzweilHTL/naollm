@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<package version="0.0.1" uuid="showcase">
+    <names>
+        <name lang="en_US">showcase</name>
+    </names>
+    <supportedLanguages>
+        <language>de_DE</language>
+        <language>en_US</language>
+    </supportedLanguages>
+    <descriptionLanguages>
+        <language>en_US</language>
+    </descriptionLanguages>
+    <contents />
+    <requirements>
+        <naoqiRequirement minVersion="2.8" />
+        <robotRequirement model="NAO" />
+    </requirements>
+</package>

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlparse
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 class ConfigError(Exception):
@@ -78,6 +78,17 @@ class AudioConfig(_Strict):
     vad_silence_s: float = Field(0.8, gt=0)
     max_utterance_s: float = Field(15.0, gt=0)
     no_speech_timeout_s: float = Field(5.0, gt=0)
+    # robot: ALSpeechRecognition word spotting; audio leaves the robot only after a trigger.
+    # laptop: openWakeWord on a continuous stream while idle (laptop-wake-word spec).
+    wake_engine: Literal["robot", "laptop"] = "robot"
+    wake_model: Optional[str] = None
+    laptop_wake_threshold: float = Field(0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _laptop_needs_a_model(self) -> "AudioConfig":
+        if self.wake_engine == "laptop" and not self.wake_model:
+            raise ValueError("audio.wake_model is required when audio.wake_engine is laptop")
+        return self
 
 
 class MotionConfig(_Strict):
@@ -89,6 +100,8 @@ class MotionConfig(_Strict):
     battery_motion_min_pct: int = Field(20, ge=0, le=100)
     battery_dance_min_pct: int = Field(30, ge=0, le=100)
     idle_crouch_s: float = Field(180.0, gt=0)
+    # Seconds from the end of one dance to the next (SPEC §13, overheating); 0 turns it off.
+    dance_cooldown_s: float = Field(120.0, ge=0)
 
 
 class PrivacyConfig(_Strict):
@@ -145,6 +158,13 @@ class Config(_Strict):
     @classmethod
     def _check_catalogues(cls, value: Dict[str, str]) -> Dict[str, str]:
         return _check_catalogue(value)
+
+    @model_validator(mode="after")
+    def _age_game_leaves_no_room_for_walking(self) -> "Config":
+        # With walking, the game would be the 11th tool; small models get at most 10 (llm-tools spec).
+        if self.privacy.age_game_enabled and self.motion.walking_enabled:
+            raise ValueError("motion.walking_enabled must be false while privacy.age_game_enabled is true")
+        return self
 
 
 def _format_error(err: ValidationError) -> str:

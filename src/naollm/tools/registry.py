@@ -69,8 +69,9 @@ class Registry:
     """Answers which tools exist and which are offered to the LLM right now."""
 
     def __init__(self, config: Config, catalogue: Catalogue, motors_enabled: bool = True,
-                 perception_available: bool = True) -> None:
+                 perception_available: bool = True, age_game: bool = False) -> None:
         self.config = config
+        self.age_game = age_game  # enabled in the config and the robot's probe succeeded
         self.catalogue = catalogue
         self.motors_enabled = motors_enabled
         self.perception_available = perception_available
@@ -91,6 +92,8 @@ class Registry:
         if name in MOTOR_TOOLS and not self.motors_enabled:
             return False
         if name == "who_is_here" and not self.perception_available:
+            return False
+        if name == "guess_age" and not self.age_game:
             return False
         if name in ("turn", "step") and not walking:
             return False

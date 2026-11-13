@@ -59,5 +59,17 @@ PROMPTS_NO_MOTORS = {
 }
 
 
-def system_prompt(lang: str, school: str, motors: bool = True) -> str:
-    return (PROMPTS if motors else PROMPTS_NO_MOTORS)[lang].format(school=school)
+# Added with privacy.age_game_enabled (SPEC §8.6), to both variants.
+AGE_GAME_RULE = {
+    "de": ("Wenn jemand dich ausdrücklich bittet, sein Alter zu raten, benutze das Werkzeug guess_age. "
+           "Es sagt die Schätzung selbst. Nenne nie selbst eine Zahl für ein Alter, "
+           "und rate ein Alter nie ohne diese Bitte."),
+    "en": ("If someone explicitly asks you to guess their age, use the guess_age tool. "
+           "It says the guess itself. Never say an age number yourself, "
+           "and never guess an age without such a request."),
+}
+
+
+def system_prompt(lang: str, school: str, motors: bool = True, age_game: bool = False) -> str:
+    text = (PROMPTS if motors else PROMPTS_NO_MOTORS)[lang].format(school=school)
+    return text + "\n" + AGE_GAME_RULE[lang] if age_game else text

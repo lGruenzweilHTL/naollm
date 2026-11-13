@@ -2,6 +2,8 @@
 # expect: {tool, args (subset)} | {no_tool: true} | {tool, rejected: true|false}
 #         | {any_of: [expectation, ...]}  (passes when one of them is met)
 # Dance names assume the dances from config.example.yaml (macarena, robot).
+# A case without `lang` is German. Every German case has an English counterpart,
+# and the report shows the score per profile and per language.
 #
 # A question about an ability ("Can you dance?") expects no tool: the robot
 # says yes and offers it, and moves only when asked. A request that asks for
@@ -114,6 +116,70 @@
   lang: en
   prompt: "How do I feel today?"
   expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "Look to the left."
+  expect: {tool: look, args: {direction: left}}
+- profile: event_default
+  lang: en
+  prompt: "Make your eyes purple."
+  expect: {tool: set_eyes, args: {color: purple}}
+- profile: event_default
+  lang: en
+  prompt: "Dance the Macarena, please!"
+  expect: {tool: dance, args: {name: macarena}}
+- profile: event_default
+  lang: en
+  prompt: "Bow to the audience."
+  expect: {tool: play_gesture, args: {name: bow}}
+- profile: event_default
+  lang: en
+  prompt: "Nod your head."
+  expect: {tool: play_gesture, args: {name: nod}}
+- profile: event_default
+  lang: en
+  prompt: "Shake your head!"
+  expect: {tool: play_gesture, args: {name: shake_head}}
+- profile: event_default
+  lang: en
+  prompt: "Please stand up."
+  expect: {tool: set_posture, args: {posture: Stand}}
+- profile: event_default
+  lang: en
+  prompt: "Look up at the ceiling."
+  expect: {tool: look, args: {direction: up}}
+- profile: event_default
+  lang: en
+  prompt: "Can you make your eyes orange?"
+  expect: {tool: set_eyes, args: {color: orange}}
+- profile: event_default
+  lang: en
+  prompt: "How many people are standing in front of you?"
+  expect: {tool: who_is_here}
+- profile: event_default
+  lang: en
+  prompt: "How old am I?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "Am I a boy or a girl?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "What is a robot?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "What's your name?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "What can you do?"
+  expect: {no_tool: true}
+- profile: event_default
+  lang: en
+  prompt: "Tell me a joke about robots."
+  expect: {no_tool: true}
 
 # --- walking_on ---
 - profile: walking_on
@@ -149,3 +215,60 @@
 - profile: walking_on
   prompt: "Tanz die Macarena!"
   expect: {tool: dance, args: {name: macarena}}
+- profile: walking_on
+  lang: en
+  prompt: "Walk ten centimetres back."
+  expect: {tool: step, args: {direction: back, cm: 10}}
+- profile: walking_on
+  lang: en
+  prompt: "Turn around in a full circle."
+  expect: {any_of: [{no_tool: true}, {tool: turn}]}
+- profile: walking_on
+  lang: en
+  prompt: "Take one step to the right."
+  expect: {tool: step, args: {direction: right}, rejected: false}
+- profile: walking_on
+  lang: en
+  prompt: "Dance the Macarena!"
+  expect: {tool: dance, args: {name: macarena}}
+- profile: walking_on
+  lang: en
+  prompt: "Walk ten metres forward."
+  expect: {any_of: [{no_tool: true}, {tool: step, args: {direction: forward}}]}
+
+# --- age_game_on: explicit requests call guess_age, questions about the robot do not ---
+- profile: age_game_on
+  prompt: "Rate mal, wie alt ich bin!"
+  expect: {tool: guess_age}
+- profile: age_game_on
+  prompt: "Kannst du schätzen, wie alt ich bin?"
+  expect: {tool: guess_age}
+- profile: age_game_on
+  prompt: "Wie alt bist du?"
+  expect: {no_tool: true}
+- profile: age_game_on
+  prompt: "Was ist ein Roboter?"
+  expect: {no_tool: true}
+- profile: age_game_on
+  prompt: "Wink mal!"
+  expect: {tool: play_gesture, args: {name: wave}}
+- profile: age_game_on
+  lang: en
+  prompt: "Guess how old I am!"
+  expect: {tool: guess_age}
+- profile: age_game_on
+  lang: en
+  prompt: "Can you estimate my age?"
+  expect: {tool: guess_age}
+- profile: age_game_on
+  lang: en
+  prompt: "How old are you?"
+  expect: {no_tool: true}
+- profile: age_game_on
+  lang: en
+  prompt: "What is a robot?"
+  expect: {no_tool: true}
+- profile: age_game_on
+  lang: en
+  prompt: "Wave at me!"
+  expect: {tool: play_gesture, args: {name: wave}}

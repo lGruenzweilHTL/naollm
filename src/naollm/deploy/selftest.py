@@ -1,7 +1,9 @@
-"""The interactive self-test of `naollm init`, with no motors (SPEC §20.1 step 8).
+"""The interactive self-test of `naollm init` (SPEC §20.1 step 8).
 
 It subscribes to robot events itself and attaches no EventWatcher, so touching the
 middle or rear sensor here tests that sensor and does not run the emergency stop.
+With motors on, a last check stands the robot up, plays one gesture and crouches,
+after the operator confirms that the robot is on the floor and the area is clear.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from typing import Any, Callable, List, Optional
 
 from naollm.config import Config
 from naollm.robot.adapter import EventKind, RobotEvent, WakeHit
+from naollm.robot.events import ESTOP_TOUCHES
 from naollm.tools.schemas import EYE_COLOURS, STATUS_COLOURS
 
 FAIL = "fail"
@@ -63,7 +66,8 @@ class SelfTest:
 
     def run(self) -> List[Check]:
         self.robot.events.subscribe(self._on_event)
-        for check in (self.speech, self.eyes, self.touch, self.microphone, self.wake_word, self.battery):
+        for check in (self.speech, self.eyes, self.touch, self.microphone, self.wake_word, self.battery,
+                      self.motion):
             try:
                 check()
             except Exception as err:
@@ -113,8 +117,10 @@ class SelfTest:
         for sensor, kind in SENSORS:
             self.out(f"Touch the {sensor} head sensor within {self.touch_s:g} s.")
             seen = self._wait(lambda: any(e.kind == kind for e in self._events), self.touch_s)
-            self._add(f"touch_{sensor}", PASS if seen else FAIL,
-                      f"{sensor} sensor reported" if seen else f"no event from the {sensor} sensor")
+            detail = f"{sensor} sensor reported" if seen else f"no event from the {sensor} sensor"
+            if seen and kind in ESTOP_TOUCHES and self.config.motion.motors_enabled:
+                detail += "; during a run it fires the emergency stop (not run here)"
+            self._add(f"touch_{sensor}", PASS if seen else FAIL, detail)
 
     def microphone(self) -> None:
         self.out(f"Speak to the robot for {self.mic_s:g} s.")
@@ -157,6 +163,65 @@ class SelfTest:
             self._add("battery", SKIP, "robot.battery_reliable is false; the reading means nothing")
             return
         self._add("battery", PASS, f"{self.robot.events.status().battery_pct} %")
+
+    def motion(self) -> None:
+        """Motors on only: Stand, the first configured gesture, Crouch, then rest."""
+        if not self.config.motion.motors_enabled:
+            return
+        names = ("stand", "gesture", "crouch")
+        if not self.config.robot.battery_reliable:
+            for name in names:
+                self._add(name, SKIP, "robot.battery_reliable is false; no motion without a trusted battery")
+            return
+        self.out("Motion check: the robot stands up, plays one gesture and crouches.")
+        answer = self.ask("Robot on the floor on a mat, area clear, your hands near the robot? [y/N] ")
+        if (answer or "").strip().lower() != "y":
+            for name in names:
+                self._add(name, SKIP, "clear area not confirmed; no motor command sent")
+            return
+        motion = self.robot.motion
+        try:
+            motion.wake_up()
+            if not motion.go_to_posture("Stand"):
+                self._add("stand", FAIL, "Stand was not reached; the robot was set to rest")
+                self._add("gesture", SKIP, "needs Stand")
+                self._add("crouch", SKIP, "needs Stand")
+                return
+            self._add("stand", PASS, "reached Stand")
+            self._gesture(motion)
+            if motion.go_to_posture("Crouch"):
+                self._add("crouch", PASS, "reached Crouch")
+            else:
+                self._add("crouch", FAIL, "Crouch was not reached; the robot was set to rest")
+        finally:
+            motion.rest()
+
+    def _gesture(self, motion: Any) -> None:
+        from naollm.animations import player
+        from naollm.animations.library import load_library
+        from naollm.tools.registry import parse_target
+
+        if not self.config.gestures:
+            self._add("gesture", SKIP, "no gesture configured")
+            return
+        name, raw = next(iter(self.config.gestures.items()))
+        target = parse_target(raw)
+        try:
+            if target.kind == "builtin":
+                outcome = motion.play_animation(target.path)
+            elif target.kind == "behavior":
+                outcome = motion.run_behavior(target.path)
+            else:
+                entries = {e.name: e for e in load_library(self.config.animations_dir)}
+                entry = entries.get(target.path)
+                if entry is None or not entry.valid:
+                    self._add("gesture", FAIL, f"{name}: animation '{target.path}' is missing or invalid")
+                    return
+                outcome = player.play(motion, entry.animation)
+        except Exception as err:
+            self._add("gesture", FAIL, f"{name} ({raw}): {err}")
+            return
+        self._add("gesture", PASS if outcome == "finished" else FAIL, f"{name} ({raw}): {outcome}")
 
     def _wait(self, condition: Callable[[], bool], seconds: float) -> bool:
         with self._arrived:

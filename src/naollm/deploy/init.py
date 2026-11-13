@@ -1,8 +1,9 @@
-"""`naollm init`: check and prepare a robot, with no motor command (SPEC §20.1).
+"""`naollm init`: check and prepare a robot (SPEC §20.1).
 
-Left out until real motion exists: SSH access, the package deploy and the Stand
-and gesture checks. `--name` is left out as well, because it changes a robot
-setting that nobody has tested.
+With motors off, init sends no motor command and skips SSH access and the
+package deploy. With motors on, it also installs the SSH key, deploys the
+Choregraphe package, and the self-test runs Stand, one gesture and Crouch after
+the operator confirms a clear area.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 import yaml
 
@@ -86,10 +88,21 @@ def write_atomic(path: Path, text: str) -> None:
         raise
 
 
+STEPS_MOTORS_OFF = ("languages", "settings", "profile", "animations", "selftest")
+STEPS_MOTORS_ON = ("ssh", "languages", "settings", "deploy", "profile", "animations", "selftest")
+ALL_STEPS = STEPS_MOTORS_ON
+
+
 class Init:
     def __init__(self, config: Config, robot: Any, url: str, out: Out, ask: Ask, dry_run: bool = False,
-                 skip_selftest: bool = False, only: Optional[str] = None) -> None:
+                 skip_selftest: bool = False, only: Optional[str] = None, name: Optional[str] = None,
+                 ssh: Optional[Callable[[str], Any]] = None, deploy: Optional[Callable[[str], int]] = None) -> None:
         self.config = config
+        self.name = name
+        self.name_set: Optional[str] = None
+        # Injected in tests: ssh(host) -> (passed, detail, hint); deploy(host) -> exit code.
+        self._ssh = ssh
+        self._deploy = deploy
         self.robot = robot
         self.url = url
         self.out = out
@@ -113,10 +126,23 @@ class Init:
             self._close()
         return self.summary()
 
+    @property
+    def motors(self) -> bool:
+        return self.config.motion.motors_enabled
+
+    def step_names(self) -> tuple:
+        return STEPS_MOTORS_ON if self.motors else STEPS_MOTORS_OFF
+
     def _run_rest(self) -> None:
-        steps = (("languages", self.languages), ("settings", self.settings), ("profile", self.profile),
-                 ("animations", self.animations), ("selftest", self.selftest))
-        for name, fn in steps:
+        functions = {"ssh": self.ssh, "languages": self.languages, "settings": self.settings,
+                     "deploy": self.deploy, "profile": self.profile, "animations": self.animations,
+                     "selftest": self.selftest}
+        names = self.step_names()
+        if self.only is not None and self.only not in names:
+            self._record(StepResult(self.only, SKIP, "motors are off: this step needs motion.motors_enabled: true"))
+            return
+        for name in names:
+            fn = functions[name]
             if self.only is not None and name != self.only:
                 continue
             if name == "selftest" and self.skip_selftest:
@@ -155,6 +181,8 @@ class Init:
         self.out(f"summary: {passed} passed, {len(failed)} failed"
                  + (f" ({', '.join(failed)})" if failed else "")
                  + (f", skipped: {', '.join(skipped)}" if skipped else ""))
+        if self.name_set:
+            self.out(f"robot name: {self.name_set} (NAOqi uses it after the next reboot)")
         return 1 if failed else 0
 
     # -- steps -----------------------------------------------------------
@@ -181,13 +209,55 @@ class Init:
             return StepResult("languages", FAIL, f"missing: {', '.join(missing)}", LANGUAGE_HELP)
         return StepResult("languages", PASS, f"TTS {', '.join(tts_needed)}; ASR {', '.join(asr_needed)}")
 
+    def _host(self) -> str:
+        return urlparse(self.url).hostname or self.url
+
+    def ssh(self) -> StepResult:
+        host = self._host()
+        if self.dry_run:
+            return StepResult("ssh", SKIP, f"dry run: would check key login to nao@{host}")
+        if self._ssh is not None:
+            passed, detail, hint = self._ssh(host)
+        else:
+            from naollm.deploy.ssh import ensure_key_login
+            passed, detail, hint = ensure_key_login(host, self.out)
+        return StepResult("ssh", PASS if passed else FAIL, detail, hint)
+
+    def deploy(self) -> StepResult:
+        host = self._host()
+        if self.dry_run:
+            return StepResult("deploy", SKIP, f"dry run: would build and install the showcase package on {host}")
+        if self._deploy is not None:
+            code = self._deploy(host)
+        else:
+            from naollm.deploy.package import Deploy
+            code = Deploy(self.config, host, lambda line: self.out("    " + line),
+                          installed=self.robot.motion.installed_behaviors).run()
+        if code != 0:
+            return StepResult("deploy", FAIL, "package deploy failed, see above", "then run 'naollm deploy'")
+        return StepResult("deploy", PASS, "showcase package installed and verified")
+
     def settings(self) -> StepResult:
-        awake = self.robot.rest_problem(check_life=False)
-        if awake:
-            return StepResult("settings", FAIL, awake, "put the robot at rest; init sends no motor command")
+        if not self.motors:
+            awake = self.robot.rest_problem(check_life=False)
+            if awake:
+                return StepResult("settings", FAIL, awake, "put the robot at rest; init sends no motor command")
         state = self.robot.autonomous_life()
         if state == "disabled":
-            return StepResult("settings", PASS, "Autonomous Life already disabled")
+            result = StepResult("settings", PASS, "Autonomous Life already disabled")
+        else:
+            result = self._disable_life(state)
+            if result.status == FAIL:
+                return result
+        if self.name:
+            if self.dry_run:
+                return StepResult("settings", PASS, f"{result.detail}; dry run: would set the name {self.name}")
+            self.robot.set_robot_name(self.name)
+            self.name_set = self.name
+            return StepResult("settings", PASS, f"{result.detail}; robot name set to {self.name}")
+        return result
+
+    def _disable_life(self, state: str) -> StepResult:
         self.out(f"Autonomous Life is {state}. Disabling it was not tested on this robot, "
                  "and the robot may move or lose stiffness.")
         answer = self.ask("Robot in a safe position? Set Autonomous Life to disabled now? [y/N] ")
@@ -195,10 +265,11 @@ class Init:
             return StepResult("settings", FAIL, f"Autonomous Life stays {state}",
                               "run init again and confirm, or disable it from the robot's web page")
         self.robot.disable_autonomous_life()
-        awake = self.robot.rest_problem(check_life=False)
-        if awake:
-            return StepResult("settings", FAIL, f"after disabling Autonomous Life: {awake}",
-                              "put the robot at rest, then run init again")
+        if not self.motors:
+            awake = self.robot.rest_problem(check_life=False)
+            if awake:
+                return StepResult("settings", FAIL, f"after disabling Autonomous Life: {awake}",
+                                  "put the robot at rest, then run init again")
         return StepResult("settings", PASS, "Autonomous Life set to disabled")
 
     def profile(self) -> StepResult:
@@ -261,9 +332,10 @@ def run_init_cli(args: argparse.Namespace, config: Config, robot: Any = None) ->
     if args.dry_run:
         robot = FakeRobot(printer=print)
     elif robot is None:
-        robot = QiRobot(listen_ip=config.robot.listen_ip, log=lambda kind, message: print(f"{kind}: {message}"))
+        robot = QiRobot(listen_ip=config.robot.listen_ip, log=lambda kind, message: print(f"{kind}: {message}"),
+                        motors_enabled=config.motion.motors_enabled)
     init = Init(config, robot, robot_url(args.robot), lambda s: print(s, flush=True), _ask, dry_run=args.dry_run,
-                skip_selftest=args.skip_selftest, only=args.only)
+                skip_selftest=args.skip_selftest, only=args.only, name=getattr(args, "name", None))
     try:
         return init.run()
     except QiUnavailable as err:

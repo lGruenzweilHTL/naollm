@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict
 
 from naollm.animations import player
 from naollm.robot.adapter import Outcome
+from naollm.tools.messages import msg
 from naollm.tools.registry import Target
 from naollm.tools.schemas import EYE_COLOURS
 
@@ -31,8 +32,22 @@ STEP_VECTORS = {
 }
 
 
+# Age game (SPEC §8.6): below this the robot says it cannot see well enough.
+AGE_MIN_CONFIDENCE = 0.5
+AGE_STEP = 5
+AGE_MIN, AGE_MAX = 5, 80
+
+
 class RobotFailure(Exception):
     """The robot could not do what was asked."""
+
+
+class ToolRefused(Exception):
+    """A tool declines with a gate reason the robot can say, such as `age_several`."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def run_target(bridge: "Bridge", target: Target) -> Outcome:
@@ -49,7 +64,11 @@ def play_gesture(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
 
 
 def dance(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
-    return run_target(bridge, bridge.registry.catalogue.dances[args["name"]])
+    try:
+        return run_target(bridge, bridge.registry.catalogue.dances[args["name"]])
+    finally:
+        # Heat builds while the dance runs, so the cooldown counts from its end, also an interrupted one.
+        bridge.last_dance_end = bridge.clock()
 
 
 def set_posture(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
@@ -64,11 +83,13 @@ def look(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
     if direction == "at_person":
         bridge.cancel_timer("look")
         perception.set_tracking(True)
+        bridge.tracking_wanted = True
         return "looking at you"
     yaw, pitch = LOOK_ANGLES[direction]
     perception.set_tracking(False)
     bridge.robot.motion.set_head(math.radians(yaw), math.radians(pitch))
-    bridge.schedule("look", bridge.look_hold_s, lambda: perception.set_tracking(True))
+    # Tracking returns after the hold, unless an emergency stop or a fall came in between.
+    bridge.schedule("look", bridge.look_hold_s, bridge.resume_tracking)
     return f"looking {direction}"
 
 
@@ -109,6 +130,33 @@ def who_is_here(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
     return text + (f"; bekannte Club-Mitglieder: {', '.join(names)}" if names else "")
 
 
+def age_line(age: float, lang: str) -> str:
+    """A 5-year range, rounded down; no number outside 5..80."""
+    if age < AGE_MIN:
+        return msg("age_very_young", lang)
+    if age > AGE_MAX:
+        return msg("age_very_old", lang)
+    low = int(age // AGE_STEP) * AGE_STEP
+    return msg("age_range", lang, low=low, high=low + AGE_STEP)
+
+
+def guess_age(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
+    """Speaks the range itself. The estimate stays in this function: no return value, log or history holds it."""
+    perception = bridge.robot.perception
+    count = perception.people_count()
+    if count == 0:
+        raise ToolRefused("age_nobody")
+    if count > 1:
+        raise ToolRefused("age_several")
+    estimate = perception.estimate_age()
+    if estimate is None or estimate.confidence < AGE_MIN_CONFIDENCE:
+        raise ToolRefused("age_unsure")
+    line = age_line(estimate.age, lang)
+    del estimate
+    bridge.robot.speech.say(line, False)
+    return msg("age_told", lang)
+
+
 def stop(bridge: "Bridge", args: Dict[str, Any], lang: str) -> str:
     """Soft stop: halt, keep posture, do not enter STOPPED."""
     bridge.robot.motion.stop_all_behaviors()
@@ -127,4 +175,5 @@ HANDLERS: Dict[str, Handler] = {
     "get_status": get_status,
     "who_is_here": who_is_here,
     "stop": stop,
+    "guess_age": guess_age,
 }

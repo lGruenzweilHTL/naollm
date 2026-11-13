@@ -2,9 +2,9 @@
 
 A local bridge that lets a NAO 6 robot hold spoken conversations through a local LLM (any OpenAI-compatible endpoint, default Ollama with `gemma4:e4b`) and move through tool calls that a safety gate checks. It was built for a robotics club showcase at school. The full design is in [`SPEC.md`](SPEC.md).
 
-**Current state:** the bridge talks to the real robot in English, with motors off. Behaviors, gestures, dances, postures, head tracking and `naollm deploy` wait for a new battery and run only on the fake robot, or not at all. See [Real robot](#real-robot).
+**Current state:** the bridge talks to the real robot in German and English, with motors off. German needs a language pack on the robot; see [Languages](#languages). Real motion is implemented, but stays off until a new battery is fitted and the on-robot motion checklist has passed; see [Motors on](#motors-on). Behaviors, gestures, dances, postures, head tracking and `naollm deploy` wait for a new battery and run only on the fake robot, or not at all. See [Real robot](#real-robot).
 
-> **No motors.** This robot's battery is defective, so never command its motors. The real adapter contains no code that can, and a real run refuses to start unless `motion.motors_enabled` is `false`. Keep the robot in a safe seated or lying position: the bridge refuses to start if the robot is awake, but it cannot prevent a wake-up between runs.
+> **No motors yet.** This robot's battery is defective, so never command its motors. Keep `motion.motors_enabled: false`, as in the example config. With motors off, the real adapter uses a motion class that contains no code that can command a motor. A real run with motors on refuses to start unless `robot.battery_reliable` is `true`, which it must not be for the old battery. Keep the robot in a safe seated or lying position: with motors off, the bridge refuses to start if the robot is awake, but it cannot prevent a wake-up between runs.
 
 ## Setup
 
@@ -51,14 +51,51 @@ If `event_mode: true` is set (as in the example config), the log does not show s
 The target is a NAO 6 on NAOqi 2.8 with Python 3.12 and `qi` 3.1.5 on the laptop.
 
 1. Set `robot.url` in `config.yaml`. Set `robot.listen_ip` to this laptop's address if remote audio does not arrive.
-2. Run `naollm init --robot <ip-or-hostname>`. It checks the languages, disables Autonomous Life after you confirm, writes the robot profile to `~/.naollm/robots/`, validates animations without playing them, and runs an interactive self-test. It sends no motor command. Use `--skip-selftest`, `--only <step>` or `--dry-run` as needed.
+2. Run `naollm init --robot <ip-or-hostname>`. It checks the languages, disables Autonomous Life after you confirm, writes the robot profile to `~/.naollm/robots/`, validates animations without playing them, and runs an interactive self-test. With motors off, it sends no motor command. Use `--skip-selftest`, `--only <step>` or `--dry-run` as needed.
 3. Run `naollm admin` for the console with no LLM and no listening, or `naollm run` for the conversation.
 
 To talk to the robot, say the wake phrase, tap the front of its head, or press `space` on an empty console line. The eyes turn blue while it listens and yellow while it thinks. Audio leaves the robot only after a trigger, stays in memory and is discarded after transcription.
 
 A middle or rear head touch runs the emergency stop on purpose. Type `resume` to continue.
 
-The wake phrase is weak on this robot: it scored 0.43 and 0.44 in the spike. Run `ears test` to see the confidences and tune `audio.wake_threshold` on site. The head tap and the key do not depend on it.
+The wake phrase is weak on this robot: the English `Hey NAO` scored 0.43 and 0.44 in the spike. Run `ears test` to see the confidences and tune `audio.wake_threshold` on site. The head tap and the key do not depend on it.
+
+### Motors on
+
+Only after a new battery is fitted. First compare the battery reading with the charger LED over one charge cycle, with the robot seated at rest, and only then set `robot.battery_reliable: true`.
+
+- **Robot on the floor**, on a mat, in a marked area of at least 1.5 × 1.5 m, with visitors outside the line. An operator stays within reach whenever the robot is powered (SPEC §10.4).
+- Set `motion.motors_enabled: true` in `config.yaml`. A real run then refuses to start when `robot.battery_reliable` is `false`, when the battery is below `motion.battery_motion_min_pct`, or when Autonomous Life is not `disabled`. Startup wakes the robot, stands it up and starts head tracking. If the wake-up or Stand fails, it sets the robot to rest and exits.
+- NAOqi's fall manager, collision protection and smart stiffness stay on. Speeds are fixed in the adapter, and every motion goes through the same safety gate as the LLM's tools.
+- `naollm init --robot <ip>` with motors on also installs this laptop's SSH key for the `nao` user (the system `ssh-copy-id` asks for the password; the bridge never sees it), deploys the Choregraphe package, and its self-test stands the robot up, plays the first configured gesture and crouches, after you confirm a clear area. `--name <name>` sets the robot name.
+- `naollm deploy [--robot <ip>]` bumps the patch version in `choregraphe/showcase/manifest.xml`, builds the package with `qipkg make-package`, installs it with `qipkg deploy-package` and checks that every `showcase/...` behavior in the config is installed. It refuses with motors off, refuses a behavior with an auto-start trigger, and undoes the version bump when the build or the install fails.
+- `naollm anim preview <name> [--speed 0.5]` plays one animation slowly through the gate, after you confirm that your hands are near the robot. Set `reviewed_by` in the file only after a preview.
+- With `motion.motors_enabled: false`, everything works as before: no motor command, no SSH or deploy step in init.
+
+### Laptop wake engine
+
+`audio.wake_engine: laptop` runs the wake word on this laptop with openWakeWord instead of the robot's word spotting, which heard `Hey NAO` at only 0.43 and 0.44. **This changes the privacy promise:** while the bridge is idle with ears on, the robot streams its front microphone to the laptop all the time (about 32 KB/s on the club router). The laptop keeps at most 2 s of that audio in memory, checks it for the wake phrase and discards it; nothing is written to disk, logged or transcribed. The stream stops while the robot listens, thinks, speaks or moves, after `ears off`, in STOPPED and while disconnected, and a trigger opens a separate stream for listening. The console warns at startup, the status line shows `wake LAPTOP, audio streams`, and `notice` says it. Use the signage variant below. The default stays `robot`.
+
+Install, on Python 3.12 (openwakeword 0.6.0 depends on `tflite-runtime`, which has no 3.12 wheel, so it is installed without its dependencies and runs on onnxruntime):
+
+```bash
+pip install -e '.[wake]'
+pip install --no-deps openwakeword==0.6.0
+python -c "from openwakeword.utils import download_models; download_models()"   # feature models, once
+```
+
+Train a "Hey NAO" model from synthetic speech, so nobody has to be recorded:
+
+1. Open openWakeWord's automatic training notebook (`notebooks/automatic_model_training.ipynb` in the openWakeWord repository) on a machine with a GPU, for example Google Colab.
+2. Settings: `target_phrase: ["hey nao", "hey now"]` (both spellings, so Piper says it the way people do), `n_samples: 30000`, `n_samples_val: 2000`, `steps: 50000`, `target_accuracy: 0.7`, `target_recall: 0.5`, and the default negative data and room impulse responses. Add `"hallo nao"` as a second model if German visitors say that.
+3. Download the `.onnx` file, put it at `~/.naollm/models/hey_nao.onnx` (outside git), and set `audio.wake_model` to that path.
+4. Run `naollm run`, then `ears test`: it shows the model's score once per second for 30 s and the highest score. Set `audio.laptop_wake_threshold` between the background scores and the scores when the phrase is said at 1 m.
+
+If the extra or the model file is missing, the bridge still starts, raises an alert that names the cause, and keeps head tap and the operator key. It does not switch to the robot engine on its own, because the signage matches the configured engine.
+
+### Languages
+
+`config.example.yaml` is German and English: each turn's language comes from speech to text, and the robot answers in it. The wake phrases are `Hallo NAO` and `Hey NAO`, spotted by the German ASR, because word spotting runs in one fixed language. This needs a German language pack on the robot for both `ALTextToSpeech` and `ALSpeechRecognition`. The pack is installed by hand (SPEC §20.3), and `naollm init` checks both languages. On a robot without German, switch to English only as the comments at the top of the example say, then run `ears test` and `naollm init` again. `naollm eval` reports the score per profile and per language, so a weak language is not hidden in an average.
 
 `naollm run` loads `llm.model` into Ollama before it says ready, and keeps it loaded with `keep_alive: -1`, so the first turn after a quiet spell is not slow. It unloads the model when the bridge exits. If the laptop process is killed hard, the model stays in RAM until `model unload`, `ollama stop <model>` or an Ollama restart. `naollm admin` loads nothing at start. If the endpoint is not Ollama, the bridge shows an alert and starts anyway.
 
@@ -115,18 +152,51 @@ In event mode, the log contains no names and no form IDs.
 
 ### Signage text
 
+> Sag 'Hallo NAO' oder tippe ihm vorne auf den Kopf. Danach hört er kurz zu und verarbeitet Sprache nur lokal auf diesem Laptop. Es wird nichts gespeichert. Die Kamera erkennt nur, dass jemand da ist. Gesichter werden nur bei Club-Mitgliedern mit Einwilligung erkannt.
+
 > Say 'Hey NAO' or tap the front of his head. He then listens for a moment and processes speech only locally on this laptop. Nothing is stored. The camera only notices that someone is there. Faces are recognized only for club members who consented.
 
-Change the wake phrase here if you change `audio.wake_words`, and add the head turning only when motors are back.
+With `privacy.age_game_enabled: true`, add:
+
+> Wenn du NAO darum bittest, schätzt er ungefähr dein Alter. Die Schätzung wird nicht gespeichert. Geschlecht und Gefühle werden nie erkannt.
+
+> If you ask NAO, he roughly guesses your age. The guess is not stored. Gender and emotions are never detected.
+
+With `audio.wake_engine: laptop`, replace the second sentence:
+
+> Sein Mikrofon schickt die ganze Zeit Ton an diesen Laptop. Dort wird er nur auf "Hallo NAO" geprüft und gleich wieder verworfen. Nach dem Weckwort hört er kurz zu und verarbeitet Sprache nur lokal auf diesem Laptop.
+
+> His microphone sends audio to this laptop all the time. There it is only checked for "Hey NAO" and then discarded. After the wake phrase he listens for a moment and processes speech only locally on this laptop.
+
+Change the wake phrases here if you change `audio.wake_words`, and add the head turning only when motors are back.
+
+### Age game
+
+`privacy.age_game_enabled: true` offers the LLM a `guess_age` tool (SPEC §8.6). It is off by default, and it is biometric categorisation of visitors who include minors, so the school and the club supervisor must clear it first, and the signage must announce it. Before that, run the probe in `spike/spike.py --age 20` with one consenting club member: if one analysis writes expression or smile values on the robot, the game stays off until the school's data-protection contact clears it in writing (EU AI Act Art. 5(1)(f)).
+
+- The tool runs only for exactly one visible person, and only with a confidence of at least 0.5. The bridge speaks a 5-year range itself, such as "10 to 15", and the LLM gets "told the visitor a rough age range". The number never reaches the LLM, the history or a log.
+- The adapter reads only the age and its confidence, never gender, smile or expression.
+- With the game on, walking cannot be switched on, so at most 10 tools are sent. The console warns at startup, the status line shows `AGE GAME ON`, and `notice` mentions the game.
+- If `ALFaceCharacteristics` is missing, the bridge starts without the tool and raises an alert.
 
 ### Deletion checklist, after the event
 
-1. Run `faces list`, and check for overdue records and mismatches.
-2. Run `faces delete --all`, and type `DELETE`.
-3. Run `faces list` again. It must show that no faces are enrolled.
-4. Check that `~/.naollm/consent.json` holds an empty list. Keep or delete it as the school requires.
-5. Check that the laptop holds no audio files and no transcripts. The bridge writes neither.
-6. File the signed consent forms, or destroy them, as the school requires.
+Run `naollm cleanup --config config.yaml` and type `DELETE`. It forgets every learned face on the robot, then removes every consent record, checks `~/.naollm` and the temp folder for audio or transcript files (and asks before deleting any), and appends one line with the date and the counts, never a name, to `~/.naollm/deletions.log`. If the robot cannot be reached, the records stay, because they are the list of faces still to forget. Then do the manual items it prints: file or destroy the signed consent forms as the school requires.
+
+## Event day
+
+The full plan is in [`docs/event-runbook.md`](docs/event-runbook.md), with [`docs/signage.md`](docs/signage.md) and [`docs/consent-form.md`](docs/consent-form.md) as drafts for the school to check.
+
+```bash
+naollm eval --config config.yaml          # the day before; writes ~/.naollm/eval/<model>.json
+naollm preflight --config config.yaml     # read-only: ready or not, with a fix hint per failed check
+naollm run --config config.yaml           # then `ears test` and `notice`
+naollm cleanup --config config.yaml       # after the event
+```
+
+`naollm preflight` checks event mode and the privacy switches, that the LLM endpoint is local, that the model loads, that the latest eval result for the model is at most 14 days old, was made with the current case file and scored at least 90 % in every profile the configuration uses, the robot's NAOqi version, languages and behaviors, that configured animations are reviewed, that motors on comes with a reliable battery, and that the consent registry has no overdue record and matches the robot's learned faces. In event mode it shows counts, not names. It sends no motor command and changes nothing; if the model is not loaded, it loads it and releases it again. The age game, the laptop wake engine and face recognition show as warnings, so you can check the signage.
+
+`motion.dance_cooldown_s` (default 120) is the time from the end of one dance to the next, against overheating. The gate refuses an earlier dance from the LLM and the operator alike, with the seconds left. `0` turns it off.
 
 ## Keyframe animations
 
@@ -151,11 +221,13 @@ naollm eval --config tests/eval/eval_config.yaml                      # every mo
 naollm eval --config tests/eval/eval_config.yaml --run "reasoning off" # only the runs whose label contains the text
 ```
 
-This runs `tests/eval/tool_calls.yaml`: 41 German and English prompts. Each case names a profile, `event_default` or `walking_on`, whose overlay from `tests/eval/profiles/` is merged into your config. The eval uses the fake robot, and the profiles switch the motors on, so it tests tool choice whatever your config says.
+This runs `tests/eval/tool_calls.yaml`: 72 German and English prompts, with an English counterpart for every German one. Each case names a profile, `event_default`, `walking_on` or `age_game_on`, whose overlay from `tests/eval/profiles/` is merged into your config. The eval uses the fake robot, and the profiles switch the motors on, so it tests tool choice whatever your config says.
 
 Before the first case, the eval loads the model into Ollama and unloads it at the end, unless it was already loaded. Each request may take 120 s, because this laptop runs the model on its CPU; change it with `--timeout`, and skip the load with `--no-warmup`. While a case waits for the model, the terminal shows a spinner, the case number, the phase (waiting, thinking, answering), the time spent and an ETA. Each finished case prints PASS or FAIL, the tool calls, and the model's reply. With `-v`, the reasoning and the reply stream as they arrive, followed by the tool calls with arguments and the case's timings.
 
-The final report shows the accuracy per profile, then the timings: mean, median, p90 and max of the response time, the first token, the first answer token (the first text or tool call, so not reasoning), the first text and the first tool call. It also shows the tokens per case, the generation rate, and how many cases reasoned, were cut off at `max_tokens`, came back empty or failed. The target before the event is at least 90 % per profile. Ctrl+C stops the run and prints the same report for the cases that finished.
+Each finished run writes `~/.naollm/eval/<model>.json` (`--results-dir` to change it) with the date, the settings, the SHA-256 of the case file and the score per profile and language, never a reply; `naollm preflight` reads it. A run stopped with Ctrl+C writes no file. `--min-score 0.95` replaces the 90 % target, and the report names the profiles below it.
+
+The final report shows the accuracy per profile and per language, then the timings: mean, median, p90 and max of the response time, the first token, the first answer token (the first text or tool call, so not reasoning), the first text and the first tool call. It also shows the tokens per case, the generation rate, and how many cases reasoned, were cut off at `max_tokens`, came back empty or failed. The target before the event is at least 90 % per profile. Ctrl+C stops the run and prints the same report for the cases that finished.
 
 A question about an ability, such as "Can you dance?", expects no tool: the robot should say yes and offer it. A request beyond the limits, such as walking ten metres, passes on any safe answer: no tool, or a call in the right direction. These cases use `any_of`, a list of expectations of which one must be met. A reply with no text and no tool always fails, because the robot would say nothing.
 
@@ -169,4 +241,4 @@ A question about an ability, such as "Can you dance?", expects no tool: the robo
 pytest
 ```
 
-The tests use the fake robot, a strict fake of the `qi` module and a stub LLM endpoint. No robot or Ollama is needed. `tests/qi_double.py` fails on any NAOqi call outside its allowlist, which is what proves the motors-off guarantee.
+The tests use the fake robot, a strict fake of the `qi` module and a stub LLM endpoint. No robot or Ollama is needed. `tests/qi_double.py` fails on any NAOqi call outside its allowlist, which is what proves the motors-off guarantee. `QiDouble(motors=True)` adds the motion mapping, and the calls that would switch off NAOqi's protections fail in both modes.

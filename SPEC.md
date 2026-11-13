@@ -3,26 +3,26 @@
 Status: Draft v0.3 · 2026-11-05
 
 Changelog:
-- v0.3 (2026-11-05): recorded the interim state of the real robot (see "Interim: English only, motors off" below). Added `audio.no_speech_timeout_s` and `robot.battery_reliable`, `robot.listen_ip`, `motion.motors_enabled`; chose `webrtcvad-wheels` for VAD; dropped `audio/robot_stream.py` and `audio/wake.py` for `robot/qi_adapter.py` and `audio/listener.py`; adapted `naollm init` and face enrolment to motors off; added an English notice and signage.
+- v0.3 (2026-11-05): recorded the interim state of the real robot (see "Interim: motors off" below; it was English only until German returned). Added `audio.no_speech_timeout_s` and `robot.battery_reliable`, `robot.listen_ip`, `motion.motors_enabled`; chose `webrtcvad-wheels` for VAD; dropped `audio/robot_stream.py` and `audio/wake.py` for `robot/qi_adapter.py` and `audio/listener.py`; adapted `naollm init` and face enrolment to motors off; added an English notice and signage.
 - v0.2 (2026-10-30): resolved review conflicts. Gate rejects out-of-range arguments (no clamping); LLM `stop` is a soft stop; status colours removed from `set_eyes`; gesture enum generated from config; speech finishes before motion; wake-word ASR fixed to German; `RobotAdapter` split into sub-interfaces; eval cases tagged with config profiles; listen hotkey `space` only on an empty prompt line; wake-word commands renamed to `ears`; phase 0 spike kept outside OpenSpec in `spike/`.
 - v0.1 (2026-10-28): first draft.
 Scope: A local, privacy-first system that lets a NAO 6 robot hold spoken conversations driven by a local LLM (via an OpenAI-compatible API) and perform movements through tool calls. Target deployment: robotics club showcase at school.
 
 ---
 
-## Interim: English only, motors off
+## Interim: motors off
 
 The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. This section overrides the rest of the SPEC until they are solved. Sections below still describe the target design.
 
-**Motors off.** The robot's battery is defective, so no motor may be used. The real adapter contains no code that commands a motor: its motion methods raise `MotorsDisabled` without calling NAOqi, and `tests/qi_double.py` fails on any NAOqi call outside an allowlist.
+**Motors off.** The robot's battery is defective, so no motor may be used. Real motion over `qi` exists (`QiMotion`), but the real adapter picks its motion class once at connect from `motion.motors_enabled`. With `false`, it uses `QiMotionDisabled`, which contains no code that commands a motor: its motion methods raise `MotorsDisabled` without calling NAOqi, and `tests/qi_double.py` fails on any NAOqi call outside an allowlist.
 
-- `motion.motors_enabled` must be `false` for a real run; otherwise the bridge refuses to start. The fake robot works with either value.
+- `motion.motors_enabled` stays `false` on this robot. A real run with `true` refuses to start unless `robot.battery_reliable` is `true`, and after connecting, unless the battery is above `motion.battery_motion_min_pct`. The fake robot works with either value. This part of the section is removed once a new battery is fitted and the on-robot motion checklist (`restore-motion`, task 7) has passed.
 - Startup refuses unless the robot is at rest and Autonomous Life is `disabled`, and it changes nothing itself. Only `naollm init` can disable Autonomous Life, after the operator confirms. A poll every 5 s reports a later wake-up with an alert and STOPPED, and sends no motor command.
 - With motors off, §6.3, §6.4, §10.3 and §18.3 skip every motion step and keep the rest. The gate rejects motion tools with the reason `motors_off`, the LLM is neither offered them nor told it can move, and `wake`, `rest`, `posture`, `walk on` and `anim play` refuse.
 - Speech always uses `ALTextToSpeech`, never `ALAnimatedSpeech`. `ALFaceDetection` head tracking is switched off before perception starts.
-- Blocked until the battery is replaced: behaviors, gestures, dances, keyframe playback, postures, head tracking, `qipkg` deploy and `naollm deploy`.
+- Blocked on this robot until the battery is replaced: behaviors, gestures, dances, keyframe playback, postures, head tracking, `naollm deploy` and `naollm anim preview`. They are implemented and tested against the strict double with motors on.
 
-**English only.** The robot has neither German TTS nor German ASR. `config.example.yaml` configures English, with the wake phrase `Hey NAO` and `audio.wake_threshold: 0.4`, because the phrase scored 0.43 and 0.44 in the spike. Code defaults stay German, and German returns through configuration alone once a language pack is installed; the comments in the example say how. A turn whose language has no installed voice runs in `robot.language`.
+**Languages.** `config.example.yaml` configures German and English (§11.1), with the wake phrases `Hallo NAO` and `Hey NAO`. This needs a German language pack on the robot for both TTS and ASR, installed by hand (§20.3); `naollm init` checks it. Measure `audio.wake_threshold` with `ears test`: in the spike, the English phrase scored only 0.43 and 0.44. For a robot without German, the comments in the example say how to switch to English only. A turn whose language has no installed voice runs in `robot.language`.
 
 **Battery.** `robot.battery_reliable: false` hides the value, because this robot reads 100 % whatever its charge. Battery events are then only logged.
 
@@ -551,8 +551,10 @@ Audio always comes from NAO's own microphones (front mic, 16 kHz mono).
 2. **Signage** at the booth, e.g.:
    > "Sag 'Hallo NAO' oder tippe ihm vorne auf den Kopf. Danach hört er kurz zu und verarbeitet Sprache nur lokal auf diesem Laptop. Es wird nichts gespeichert. Die Kamera erkennt nur, dass jemand da ist, und dreht den Kopf zu dir. Gesichter werden nur bei Club-Mitgliedern mit Einwilligung erkannt."
 
-   While the robot is English only with motors off, use this instead (also in the README):
-   > "Say 'Hey NAO' or tap the front of his head. He then listens for a moment and processes speech only locally on this laptop. Nothing is stored. The camera only notices that someone is there. Faces are recognized only for club members who consented."
+   English, next to the German text:
+   > "Say 'Hey NAO' or tap the front of his head. He then listens for a moment and processes speech only locally on this laptop. Nothing is stored. The camera only notices that someone is there, and he turns his head to you. Faces are recognized only for club members who consented."
+
+   While motors are off, leave out the head turning in both languages ("…, und dreht den Kopf zu dir" and "…, and he turns his head to you").
 3. Short **spoken notice** available via the `notice` command, in the current language. It does not mention the head turning while motors are off.
 4. **Deletion checklist** after the event (forget all faces, confirm no files written).
 

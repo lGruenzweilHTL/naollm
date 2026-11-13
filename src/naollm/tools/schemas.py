@@ -10,6 +10,7 @@ MOTION = "motion"   # takes the motion lock
 LED = "led"         # eyes; refused in blocking states, no lock
 READ = "read"       # always allowed
 STOP = "stop"       # always allowed, never locked
+SPEAK = "speak"     # the bridge speaks; refused in blocking states, no lock
 
 MAX_TOOLS = 10
 
@@ -152,5 +153,8 @@ def build_specs(
         ToolSpec("get_status", "Check your battery, posture and temperature.", READ),
         ToolSpec("who_is_here", "Count people in front of you and name known club members.", READ),
         ToolSpec("stop", "Stop moving right now.", STOP),
+        # Offered only with the age game on (SPEC §8.6). It speaks the guess itself.
+        ToolSpec("guess_age", "Guess the visitor's age roughly, only when they ask you to. "
+                              "The tool says the guess aloud.", SPEAK),
     ]
     return {s.name: s for s in specs}

@@ -79,3 +79,11 @@ def off_robot(robot) -> FakeRobot:
 @pytest.fixture
 def off_bridge(off_robot, make_bridge):
     return make_bridge(make_config(motion={"motors_enabled": False}))
+
+
+@pytest.fixture(autouse=True)
+def eval_results_in_tmp(tmp_path, monkeypatch):
+    """No test writes to the operator's ~/.naollm/eval."""
+    import naollm.eval
+
+    monkeypatch.setattr(naollm.eval, "RESULTS_DIR", tmp_path / "eval-results")

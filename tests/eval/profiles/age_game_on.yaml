@@ -1,0 +1,7 @@
+# Age game on (SPEC §8.6): guess_age is offered, walking stays off (10-tool limit).
+event_mode: false
+motion:
+  motors_enabled: true   # eval checks tool choice on the fake robot, whatever the base config says
+  walking_enabled: false
+privacy:
+  age_game_enabled: true

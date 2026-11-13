@@ -18,6 +18,7 @@ class EStop:
         b = self.bridge
         motion = b.robot.motion
         moving = [
+            ("tracking_off", lambda: b.set_tracking(False)),
             ("stop_behaviors", motion.stop_all_behaviors),
             ("stop_move", motion.stop_move),
             ("balancer_off", lambda: motion.set_balancer(False)),

@@ -1,14 +1,16 @@
 # Copy to config.yaml and adjust. Every key is optional except robot.url.
 #
-# This file targets the current robot: English only, with motors off.
-# To restore German after a language pack is installed on the robot:
-#   robot.language: German, conversation.school_name: unserer Schule,
-#   stt.languages: [de, en], stt.fallback_language: de,
-#   audio.wake_language: German, audio.wake_words: ["Hallo NAO", "Hey NAO"].
-# Then tune the threshold again with `ears test` and run `naollm init`.
+# This file targets the showcase robot: German and English, with motors off.
+# It needs a German language pack on the robot, for both ALTextToSpeech and
+# ALSpeechRecognition; `naollm init` checks that.
+# For a robot without German, switch to English only:
+#   robot.language: English, conversation.school_name: our school,
+#   stt.languages: [en], stt.fallback_language: en,
+#   audio.wake_language: English, audio.wake_words: ["Hey NAO"].
+# After any language change, tune the threshold with `ears test` and run `naollm init`.
 robot:
   url: tcp://192.168.8.20:9559
-  language: English           # default turn language: German | English
+  language: German            # default turn language: German | English
   battery_reliable: false     # this robot's battery reads 100 % whatever its charge
   # listen_ip: 192.168.8.10   # this laptop's address, if remote audio does not arrive
 llm:
@@ -23,22 +25,28 @@ llm:
 conversation:
   history_turns: 6
   idle_reset_s: 60
-  school_name: our school
+  school_name: unserer Schule
 stt:
   engine: faster-whisper
   model: small               # drop to base if turns are slow on this laptop
-  languages: [en]
-  fallback_language: en
+  languages: [de, en]
+  fallback_language: de     # short utterances are often misdetected; German is the event's main language
 audio:
   source: robot              # robot | robot_recorder_fallback
-  wake_words: ["Hey NAO"]
-  wake_language: English     # fixed ASR language for word spotting (SPEC §11.1)
-  wake_threshold: 0.4        # the phrase scored 0.43 and 0.44 on this robot; tune with `ears test`
+  wake_words: ["Hallo NAO", "Hey NAO"]
+  wake_language: German      # fixed ASR language for word spotting (SPEC §11.1)
+  wake_threshold: 0.4        # English "Hey NAO" scored 0.43 and 0.44; measure German with `ears test` and set it here
   front_head_tap: true
   operator_key: space        # only when the admin prompt line is empty
   vad_silence_s: 0.8
   max_utterance_s: 15
   no_speech_timeout_s: 5     # stop listening when nobody speaks after a trigger
+  # robot: word spotting on the robot; audio leaves the robot only after a trigger.
+  # laptop: openWakeWord on the laptop. The robot then streams audio all the time while
+  # idle (kept 2 s, never stored), so the signage and `notice` must say so (SPEC §11.2).
+  wake_engine: robot
+  # wake_model: ~/.naollm/models/hey_nao.onnx   # required with wake_engine: laptop
+  laptop_wake_threshold: 0.5  # laptop engine only; tune with `ears test`
 motion:
   motors_enabled: false      # must stay false on the real robot until real motion exists
   walking_enabled: false
@@ -48,6 +56,7 @@ motion:
   battery_motion_min_pct: 20
   battery_dance_min_pct: 30
   idle_crouch_s: 180
+  dance_cooldown_s: 120      # seconds from the end of a dance to the next one; 0 turns it off
 # Not used while motors are off. Kept so they return with the motors.
 dances:
   macarena: showcase/dance_macarena

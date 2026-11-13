@@ -40,14 +40,34 @@ def build_parser() -> argparse.ArgumentParser:
     for p in (v, lst, imp):
         p.add_argument("--dir", default="animations", help="animation directory")
         p.add_argument("--profile", default=None, help="robot profile with joint limits")
+    pre = anim_sub.add_parser("preview", help="play one animation slowly on the robot (motors on only)")
+    pre.add_argument("name", help="animation name")
+    pre.add_argument("--speed", type=float, default=0.5, help="speed factor, above 0 and at most 1 (default 0.5)")
+    pre.add_argument("--config", default="config.yaml", help="path to the YAML config")
+    pre.add_argument("--profile", default=None, help="robot profile with joint limits")
+    pre.add_argument("--dry-run", action="store_true", help="use the fake robot")
 
-    ini = sub.add_parser("init", help="check and prepare a robot, with no motors")
+    ini = sub.add_parser("init", help="check and prepare a robot (motor steps only with motors on)")
     ini.add_argument("--robot", required=True, help="robot IP or hostname")
     ini.add_argument("--config", default="config.yaml", help="path to the YAML config")
     ini.add_argument("--skip-selftest", action="store_true", help="leave out the interactive self-test")
-    ini.add_argument("--only", choices=["languages", "settings", "profile", "animations", "selftest"],
+    ini.add_argument("--only", choices=["ssh", "languages", "settings", "deploy", "profile", "animations",
+                                        "selftest"],
                      help="connect, then run this step only")
+    ini.add_argument("--name", default=None, help="set the robot name (only when given)")
     ini.add_argument("--dry-run", action="store_true", help="use the fake robot and write no file")
+
+    dep = sub.add_parser("deploy", help="build and install the Choregraphe package (motors on only)")
+    dep.add_argument("--robot", default=None, help="robot IP or hostname (default: the host in robot.url)")
+    dep.add_argument("--config", default="config.yaml", help="path to the YAML config")
+
+    pre = sub.add_parser("preflight", help="read-only check that the setup is ready for the event")
+    pre.add_argument("--config", default="config.yaml", help="path to the YAML config")
+    pre.add_argument("--cases", default="tests/eval/tool_calls.yaml", help="eval case file the result must match")
+    pre.add_argument("--results-dir", default=None, help="eval result files (default ~/.naollm/eval)")
+
+    cln = sub.add_parser("cleanup", help="after the event: forget faces, remove consent records, check files")
+    cln.add_argument("--config", default="config.yaml", help="path to the YAML config")
 
     ev = sub.add_parser("eval", help="tool-call evaluation against the configured LLM")
     ev.add_argument("cases", nargs="?", default="tests/eval/tool_calls.yaml")
@@ -60,6 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--no-warmup", action="store_true", help="do not load the model before the first case")
     ev.add_argument("--run", action="append", default=None, metavar="TEXT",
                     help="matrix config: only the runs whose label contains TEXT (repeatable)")
+    ev.add_argument("--min-score", type=float, default=None, metavar="FRACTION",
+                    help="target score per profile, replacing 0.9")
+    ev.add_argument("--results-dir", default=None, help="where result files go (default ~/.naollm/eval)")
     return parser
 
 
@@ -69,6 +92,15 @@ def _load(path: str) -> Config:
     if problems:
         raise ConfigError("refusing to start:\n  " + "\n  ".join(problems))
     return config
+
+
+def motion_problem(config: Config) -> Optional[str]:
+    """Why a real run with motors on must not connect, or None (qi-motion spec)."""
+    if config.motion.motors_enabled and not config.robot.battery_reliable:
+        return ("motion.motors_enabled is true but robot.battery_reliable is false. A battery reading "
+                "that cannot be trusted cannot protect a moving robot. Set motion.motors_enabled: false, "
+                "or check the new battery and set robot.battery_reliable: true.")
+    return None
 
 
 def keyframe_loader(config: Config, robot_id: Callable[[], Optional[str]]):
@@ -94,7 +126,7 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
     from naollm.admin.faces import Faces
     from naollm.audio.listener import Listener
     from naollm.audio.stt import SpeechToText
-    from naollm.bridge import Bridge, RobotNotAtRest
+    from naollm.bridge import Bridge, StartupRefused
     from naollm.llm.client import OpenAIChatClient
     from naollm.llm.loop import ConversationLoop
     from naollm.llm.residency import ModelResidency, ModelResidencyError, in_daemon_thread
@@ -107,12 +139,12 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
                    if not t.startswith("anim:")]
         robot = FakeRobot(installed_behaviors=targets, printer=print)
     else:
-        if config.motion.motors_enabled:
-            print("Refusing to start: real motion is not implemented yet. "
-                  "Set motion.motors_enabled: false, or use --dry-run.", file=sys.stderr)
+        problem = motion_problem(config)
+        if problem:
+            print(f"Refusing to start: {problem}", file=sys.stderr)
             return 2
         if robot is None:
-            robot = QiRobot(listen_ip=config.robot.listen_ip)
+            robot = QiRobot(listen_ip=config.robot.listen_ip, motors_enabled=config.motion.motors_enabled)
     bridge = Bridge(config, robot, keyframe_loader=keyframe_loader(config, lambda: robot.info().robot_id))
     bridge.log.subscribe(lambda entry: print(entry.render(), flush=True))
     if not dry_run:
@@ -169,7 +201,7 @@ async def run_app(config: Config, mode: str, dry_run: bool, config_path: str = "
     try:
         try:
             bridge.startup(greet=False)
-        except (RobotNotAtRest, RobotConnectionError, QiUnavailable, RobotOffline) as err:
+        except (StartupRefused, RobotConnectionError, QiUnavailable, RobotOffline) as err:
             print(f"Refusing to start: {err}", file=sys.stderr)
             bridge.mark_not_started()
             return 2
@@ -259,11 +291,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.command in ("run", "admin"):
             config = _load(args.config)
             return asyncio.run(run_app(config, args.command, args.dry_run, args.config))
+        if args.command == "anim" and args.anim_command == "preview":
+            from naollm.animations.preview import run_preview_cli, speed_problem
+            problem = speed_problem(args.speed)
+            if problem:
+                print(problem, file=sys.stderr)
+                return 2
+            return run_preview_cli(args, _load(args.config))
         if args.command == "anim":
             return cmd_anim(args)
         if args.command == "init":
             from naollm.deploy.init import run_init_cli
             return run_init_cli(args, _load(args.config))
+        if args.command == "preflight":
+            from naollm.deploy.preflight import run_preflight_cli
+            # A config that fails the startup checks still gets a full report.
+            return run_preflight_cli(args, load_config(args.config))
+        if args.command == "cleanup":
+            from naollm.deploy.cleanup import run_cleanup_cli
+            return run_cleanup_cli(args, load_config(args.config))
+        if args.command == "deploy":
+            from naollm.deploy.package import run_deploy_cli
+            return run_deploy_cli(args, _load(args.config))
         if args.command == "eval":
             from naollm.eval import run_eval_cli
             return run_eval_cli(args)

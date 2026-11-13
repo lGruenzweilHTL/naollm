@@ -20,6 +20,10 @@ dependencies = [
 dev = ["pytest>=8"]
 robot = ["qi>=3.1.5"]
 voice = ["faster-whisper>=1.0", "webrtcvad-wheels>=2.0.14"]
+# The laptop wake engine. openwakeword 0.6.0 itself needs tflite-runtime, which has no
+# Python 3.12 wheel, so install it without its dependencies (see the README):
+#   pip install --no-deps openwakeword==0.6.0
+wake = ["onnxruntime>=1.16", "numpy>=1.24", "tqdm>=4", "requests>=2"]
 
 [project.scripts]
 naollm = "naollm.main:main"

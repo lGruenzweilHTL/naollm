@@ -30,8 +30,16 @@ KeyframeLoader = Callable[[], Tuple[Mapping[str, Any], Mapping[str, str]]]
 TTS_LANGUAGE = {"de": "German", "en": "English"}
 
 
-class RobotNotAtRest(Exception):
+class StartupRefused(Exception):
+    """The bridge must not start: the robot is not in a state it can safely use."""
+
+
+class RobotNotAtRest(StartupRefused):
     """The robot is awake or stiff, or Autonomous Life is on, with motors off."""
+
+
+# States in which head tracking stays off until the operator resumes.
+NO_TRACKING_STATES = frozenset({State.STOPPED, State.FALLEN, State.OFFLINE, State.RESTING})
 
 
 class Bridge:
@@ -53,6 +61,9 @@ class Bridge:
         self.language = lang_code(config.robot.language)
         self.keyframe_loader = keyframe_loader
         self.keyframes: Dict[str, Any] = {}
+        self.age_game = False  # privacy.age_game_enabled and the robot's probe succeeded
+        self.clock: Callable[[], float] = time.monotonic
+        self.last_dance_end: Optional[float] = None  # for motion.dance_cooldown_s
         self.registry = self._make_registry(Catalogue())
         self.gate = Gate(self)
         self.estop_routine = EStop(self)
@@ -69,6 +80,7 @@ class Bridge:
         self._state_colour: Optional[str] = None
         self._installed_tts: Optional[List[str]] = None
         self._awake_reported = False
+        self.tracking_wanted = False  # head tracking, with motors on only
         self.exclusive: Optional[str] = None  # an operator flow that no turn may interrupt
         self.shutdown_hooks: List[Callable[[], None]] = []
         self.reconnect_hooks: List[Callable[[], None]] = []
@@ -77,7 +89,7 @@ class Bridge:
     # -- catalogue -----------------------------------------------------
     def _make_registry(self, catalogue: Catalogue) -> Registry:
         return Registry(self.config, catalogue, motors_enabled=self.motors_enabled,
-                        perception_available=self.robot.perception.available)
+                        perception_available=self.robot.perception.available, age_game=self.age_game)
 
     def refresh_catalogue(self) -> Catalogue:
         keyframes: Mapping[str, Any] = {}
@@ -100,13 +112,13 @@ class Bridge:
     def startup(self, greet: bool = True) -> None:
         self.robot.connect(self.config.robot.url)
         self._require_at_rest()
+        self._require_motion_ready()
         info = self.robot.info()
         self.log.log("robot", f"connected to {info.name} (NAOqi {info.naoqi_version})")
         self._start_perception()
         if self.motors_enabled:
-            self.robot.motion.wake_up()
-            self.robot.motion.go_to_posture("Stand")
-            self.robot.perception.set_tracking(True)
+            self._wake_and_stand()
+            self.set_tracking(True)
         self.refresh_catalogue()
         self._installed_tts = self.robot.speech.installed_languages()
         for needed in self._needed_tts_languages():
@@ -144,6 +156,24 @@ class Bridge:
             self.robot.perception.start(self.config.privacy.face_recognition_enabled)
         except Exception as err:
             self.log.log("alert", f"PERCEPTION UNAVAILABLE: who_is_here and faces are off ({err})")
+        self._probe_age_game()
+
+    def _probe_age_game(self) -> None:
+        """The game needs the config switch, perception and ALFaceCharacteristics. Takes no estimate."""
+        self.age_game = False
+        if not self.config.privacy.age_game_enabled:
+            return
+        try:
+            ok = self.robot.perception.available and self.robot.perception.probe_age()
+        except Exception as err:
+            self.log.log("warning", f"age game probe failed: {err!r}")
+            ok = False
+        if not ok:
+            self.log.log("alert", "AGE GAME UNAVAILABLE: age estimation is missing on this robot; guess_age is off")
+            return
+        self.age_game = True
+        self.log.log("alert", "AGE GAME ON: NAO guesses an age when a visitor asks. "
+                              "The signage must announce it, and the school must have cleared it")
 
     def _needed_tts_languages(self) -> List[str]:
         needed = [TTS_LANGUAGE[code] for code in self.config.stt.languages]
@@ -167,11 +197,78 @@ class Bridge:
         problem = self.robot.rest_problem()
         if problem is None:
             return
+        self._disconnect_quietly()
+        raise RobotNotAtRest(problem)
+
+    def _require_motion_ready(self) -> None:
+        """With motors on, before any motor command: Autonomous Life off and enough battery."""
+        if not self.motors_enabled:
+            return
+        state = self.robot.autonomous_life()
+        if state != "disabled":
+            self._disconnect_quietly()
+            raise StartupRefused(f"Autonomous Life is {state}; run 'naollm init'")
+        if not self.config.robot.battery_reliable:
+            return  # a real run refuses this before connecting; the fake robot may start
+        pct = self.robot.events.status().battery_pct
+        minimum = self.config.motion.battery_motion_min_pct
+        if pct < minimum:
+            self._disconnect_quietly()
+            raise StartupRefused(f"battery {pct} % is below motion.battery_motion_min_pct ({minimum} %); "
+                                 "charge the robot first")
+
+    def _wake_and_stand(self) -> None:
+        """A failed wakeUp or Stand stops startup: rest, disconnect, and name the step."""
+        motion = self.robot.motion
+        step = "wake_up"
+        try:
+            motion.wake_up()
+            step = "stand"
+            if not motion.go_to_posture("Stand"):
+                raise RuntimeError("Stand was not reached")
+        except Exception as err:
+            self.log.log("alert", f"startup step {step} failed: {err}")
+            try:
+                motion.rest()
+            except Exception as rest_err:
+                self.log.log("error", f"rest after failed startup failed: {rest_err!r}")
+            self._disconnect_quietly()
+            raise StartupRefused(f"startup step {step} failed: {err}; the robot was set to rest") from err
+
+    def _disconnect_quietly(self) -> None:
         try:
             self.robot.disconnect()
         except Exception as err:
             self.log.log("error", f"disconnect failed: {err!r}")
-        raise RobotNotAtRest(problem)
+
+    # -- head tracking (motors on only) ----------------------------------
+    def set_tracking(self, enabled: bool) -> None:
+        """What the bridge wants. With motors off there is no head tracking at all."""
+        if not self.motors_enabled:
+            return
+        self.tracking_wanted = enabled
+        try:
+            self.robot.perception.set_tracking(enabled)
+        except Exception as err:
+            self.log.log("warning", f"head tracking {'on' if enabled else 'off'} failed: {err!r}")
+
+    def pause_tracking(self) -> bool:
+        """Before a motion tool. Returns True when tracking was on and is paused now."""
+        if not (self.motors_enabled and self.tracking_wanted):
+            return False
+        self.robot.perception.set_tracking(False)
+        return True
+
+    def resume_tracking(self) -> None:
+        """After a motion tool, unless an emergency stop, a fall or a rest came in between."""
+        if not (self.motors_enabled and self.tracking_wanted):
+            return
+        if self.state.state in NO_TRACKING_STATES:
+            return
+        try:
+            self.robot.perception.set_tracking(True)
+        except Exception as err:
+            self.log.log("warning", f"head tracking on failed: {err!r}")
 
     def shutdown(self) -> None:
         if self._shut_down:
@@ -179,6 +276,7 @@ class Bridge:
         self._shut_down = True
         motion = self.robot.motion
         moving = [
+            ("tracking_off", lambda: self.set_tracking(False)),
             ("stop_behaviors", motion.stop_all_behaviors),
             ("stop_move", motion.stop_move),
             ("crouch", lambda: motion.go_to_posture("Crouch")),
@@ -214,6 +312,8 @@ class Bridge:
             return False
         self._awake_reported = False
         self.log.log("admin", "resumed", source="admin")
+        if self.motors_enabled:
+            self.set_tracking(True)
         self.touch()
         return True
 

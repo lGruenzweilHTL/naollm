@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from naollm.robot.adapter import (
     HEAD_SPEED,
+    AgeEstimate,
     POSTURE_SPEED,
     EventKind,
     Keyframes,
@@ -92,6 +93,7 @@ class FakeRobot:
         self.limits: Dict[str, Tuple[float, float, float]] = dict(_FAKE_LIMITS)
         self.fail_on: Dict[str, Exception] = {}
         self.autonomous_life_state = "disabled"
+        self.robot_name = "FakeNAO"
         self.asr_languages: List[str] = ["German", "English"]
         self.wake_words: List[str] = []
         self.wake_threshold = 0.5
@@ -101,6 +103,8 @@ class FakeRobot:
         self.stream_audio = b""
         self._stream_stop: Optional[threading.Event] = None
         self.available = True
+        self.age_service = True
+        self.age_estimate: Optional[AgeEstimate] = None  # what the next estimate returns
 
     # -- recording -----------------------------------------------------
     def _record(self, _action: str, **args: Any) -> None:
@@ -150,7 +154,7 @@ class FakeRobot:
         self.connected = False
 
     def info(self) -> RobotInfo:
-        return RobotInfo(naoqi_version="2.8.7-fake", robot_id="fake-nao", name="FakeNAO")
+        return RobotInfo(naoqi_version="2.8.7-fake", robot_id="fake-nao", name=self.robot_name)
 
     def rest_problem(self, check_life: bool = True) -> Optional[str]:
         if self.stiff:
@@ -165,6 +169,10 @@ class FakeRobot:
     def disable_autonomous_life(self) -> None:
         self._record("disable_autonomous_life")
         self.autonomous_life_state = "disabled"
+
+    def set_robot_name(self, name: str) -> None:
+        self._record("set_robot_name", name=name)
+        self.robot_name = name
 
     # -- Motion --------------------------------------------------------
     def run_behavior(self, path: str) -> Outcome:
@@ -394,3 +402,10 @@ class FakeRobot:
         self._record("forget_all_faces")
         self.faces.clear()
         return True
+
+    def probe_age(self) -> bool:
+        return self.age_service
+
+    def estimate_age(self) -> Optional[AgeEstimate]:
+        self._record("estimate_age")  # never the value
+        return self.age_estimate if self.people == 1 else None

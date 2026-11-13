@@ -7,7 +7,10 @@ config, because the tool set depends on config (hidden tools are not sent).
 from __future__ import annotations
 
 import asyncio
+import datetime
+import hashlib
 import json
+import re
 import shutil
 import statistics
 import sys
@@ -23,6 +26,7 @@ from naollm.llm.client import ChatClient, LLMUnavailable, ToolCall
 from naollm.llm.prompts import system_prompt
 
 TARGET_ACCURACY = 0.9
+RESULTS_DIR = Path("~/.naollm/eval")
 EVAL_TIMEOUT_S = 120.0   # per request; a CPU-only laptop needs far more than the bridge's 20 s
 STREAMED_MIN_S = 0.5     # shorter output says nothing about the generation rate
 
@@ -65,17 +69,30 @@ class Outcome:
 class Report:
     outcomes: Dict[str, List[Outcome]] = field(default_factory=dict)
     planned: int = 0
+    target: float = TARGET_ACCURACY
 
-    def accuracy(self, profile: str) -> float:
-        items = self.outcomes.get(profile, [])
+    def accuracy(self, profile: str, lang: Optional[str] = None) -> float:
+        items = [o for o in self.outcomes.get(profile, []) if lang is None or o.case.lang == lang]
         return sum(o.passed for o in items) / len(items) if items else 0.0
 
     def all(self) -> List[Outcome]:
         return [o for items in self.outcomes.values() for o in items]
 
+    def languages(self, profile: Optional[str] = None) -> List[str]:
+        """Prompt languages in case order, for one profile or for all of them."""
+        items = self.all() if profile is None else self.outcomes.get(profile, [])
+        return list(dict.fromkeys(o.case.lang for o in items))
+
+    def language_accuracy(self, lang: str) -> float:
+        items = [o for o in self.all() if o.case.lang == lang]
+        return sum(o.passed for o in items) / len(items) if items else 0.0
+
+    def below_target(self) -> List[str]:
+        return [p for p, items in self.outcomes.items() if items and self.accuracy(p) < self.target]
+
     @property
     def passed(self) -> bool:
-        return all(self.accuracy(p) >= TARGET_ACCURACY for p in self.outcomes)
+        return not self.below_target()
 
 
 def deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
@@ -319,6 +336,7 @@ async def evaluate(
                 robot.posture = "Stand"
                 robot.fallen = False
                 bridge.displacement_cm = 0
+                bridge.last_dance_end = None  # each case is a new visitor, not a second dance
                 outcome = await _run_case(case, cfg, bridge, client, progress)
                 results.append(outcome)
                 if progress is not None:
@@ -339,7 +357,8 @@ async def evaluate(
 
 async def _run_case(case: Case, cfg: Config, bridge, client: ChatClient, progress: Optional[Progress]) -> Outcome:
     messages = [
-        {"role": "system", "content": system_prompt(case.lang, cfg.conversation.school_name)},
+        {"role": "system", "content": system_prompt(case.lang, cfg.conversation.school_name,
+                                                    bridge.motors_enabled, bridge.age_game)},
         {"role": "user", "content": case.prompt},
     ]
     timing = Timing()
@@ -511,14 +530,22 @@ def print_report(report: Report, verbose: bool = False, partial: bool = False,
             continue
         ok = sum(o.passed for o in items)
         print(f"{profile}: {ok}/{len(items)} correct ({report.accuracy(profile):.0%})")
+        # Per language, so a weak language is not hidden in the profile's average.
+        for lang in report.languages(profile):
+            mine = [o for o in items if o.case.lang == lang]
+            score = report.accuracy(profile, lang)
+            flag = "" if score >= report.target else "  below target"
+            print(f"  {lang}: {sum(o.passed for o in mine)}/{len(mine)} correct ({score:.0%}){flag}")
         for o in items:
             if verbose or not o.passed:
                 mark = "PASS" if o.passed else "FAIL"
                 print(f"  {mark} [{o.case.lang}] {o.case.prompt!r}: expected {o.case.expect}, got {o.detail}")
     if partial:
-        print(f"target {TARGET_ACCURACY:.0%} per profile: not judged, the run was interrupted")
+        print(f"target {report.target:.0%} per profile: not judged, the run was interrupted")
+    elif report.passed:
+        print(f"target {report.target:.0%} per profile: met")
     else:
-        print(f"target {TARGET_ACCURACY:.0%} per profile: {'met' if report.passed else 'NOT met'}")
+        print(f"target {report.target:.0%} per profile: NOT met, below: {', '.join(report.below_target())}")
     if report.all():
         print()
         print_metrics(report.all(), model, reasoning_effort)
@@ -602,7 +629,8 @@ def _plural(count: int, word: str) -> str:
 def print_comparison(results: List[RunResult]) -> None:
     """One row per run: accuracy per profile, median timings and problem counts."""
     profiles = list(dict.fromkeys(p for r in results for p in r.report.outcomes))
-    header = (["run"] + profiles + ["target", "first answer", "first text", "response", "tokens/s",
+    languages = list(dict.fromkeys(lang for r in results for lang in r.report.languages()))
+    header = (["run"] + profiles + languages + ["target", "first answer", "first text", "response", "tokens/s",
                                     "reasoning", "cut off", "empty", "errors", "wall"])
     rows = []
     for r in results:
@@ -612,6 +640,10 @@ def print_comparison(results: List[RunResult]) -> None:
         for p in profiles:
             items = r.report.outcomes.get(p, [])
             row.append(f"{sum(o.passed for o in items)}/{len(items)} {r.report.accuracy(p):.0%}" if items else "-")
+        for lang in languages:
+            items = [o for o in outcomes if o.case.lang == lang]
+            row.append(f"{sum(o.passed for o in items)}/{len(items)} {r.report.language_accuracy(lang):.0%}"
+                       if items else "-")
         row.append("-" if r.interrupted else "met" if r.report.passed else "NOT met")
         for attr in ("first_answer", "first_text", "total"):
             values = [getattr(o.timing, attr) for o in timed if getattr(o.timing, attr) is not None]
@@ -623,14 +655,55 @@ def print_comparison(results: List[RunResult]) -> None:
         row.append(f"{r.wall:.0f}s")
         rows.append(row)
     widths = [max(len(row[i]) for row in [header] + rows) for i in range(len(header))]
-    print(f"comparison of {_plural(len(results), 'run')}; times are medians, target {TARGET_ACCURACY:.0%} per profile")
+    target = results[0].report.target if results else TARGET_ACCURACY
+    print(f"comparison of {_plural(len(results), 'run')}; times are medians, target {target:.0%} per profile")
     for row in [header] + rows:
         cells = [c.ljust(w) if i == 0 else c.rjust(w) for i, (c, w) in enumerate(zip(row, widths))]
         print("  " + "  ".join(cells).rstrip())
 
 
+def case_file_hash(path: str | Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def result_path(model: str, directory: str | Path = RESULTS_DIR) -> Path:
+    """`gemma4:e4b` -> `<directory>/gemma4_e4b.json`."""
+    return Path(directory).expanduser() / (re.sub(r"[^A-Za-z0-9._-]", "_", model) + ".json")
+
+
+def write_result(report: Report, llm, label: str, cases_path: str | Path,
+                 directory: str | Path = RESULTS_DIR, now: Optional[datetime.datetime] = None) -> Path:
+    """Scores, settings, date and the case file hash. Never a reply: the file holds no conversation."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    data = {
+        "date": now.isoformat(timespec="seconds"),
+        "model": llm.model,
+        "label": label,
+        "settings": {"base_url": llm.base_url, "reasoning_effort": llm.reasoning_effort,
+                     "temperature": llm.temperature, "max_tokens": llm.max_tokens},
+        "case_file": str(cases_path),
+        "case_file_sha256": case_file_hash(cases_path),
+        "target": report.target,
+        "passed": report.passed,
+        "profiles": {p: {"correct": sum(o.passed for o in items), "cases": len(items),
+                         "score": round(report.accuracy(p), 4),
+                         "languages": {lang: round(report.accuracy(p, lang), 4) for lang in report.languages(p)}}
+                     for p, items in report.outcomes.items() if items},
+    }
+    path = result_path(llm.model, directory)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
 def run_eval_cli(args) -> int:
     cases_path = Path(args.cases)
+    min_score = getattr(args, "min_score", None)
+    if min_score is not None and not 0 < min_score <= 1:
+        print(f"--min-score must be above 0 and at most 1, got {min_score:g}", file=sys.stderr)
+        return 2
     profiles_dir = Path(args.profiles) if args.profiles else cases_path.parent / "profiles"
     cases = load_cases(cases_path)
     runs = load_eval_config(args.config)
@@ -641,7 +714,7 @@ def run_eval_cli(args) -> int:
             print(f"no run matches {', '.join(wanted)}", file=sys.stderr)
             return 2
     if len(runs) == 1:
-        result = _run_once(runs[0][1], cases, profiles_dir, args)
+        result = _run_once(runs[0][1], cases, profiles_dir, args, runs[0][0])
         if result.interrupted:
             return 130
         return 0 if result.report.passed else 1
@@ -666,6 +739,7 @@ def _run_once(base: Dict[str, Any], cases: List[Case], profiles_dir: Path, args,
     from naollm.llm.client import OpenAIChatClient
 
     llm = parse_config(base).llm
+    label = label or run_label(llm)
     timeout = getattr(args, "timeout", None) or EVAL_TIMEOUT_S
     verbose = bool(getattr(args, "verbose", False))
     profiles = len(dict.fromkeys(c.profile for c in cases))
@@ -675,7 +749,7 @@ def _run_once(base: Dict[str, Any], cases: List[Case], profiles_dir: Path, args,
           f"reasoning_effort {llm.reasoning_effort if llm.reasoning_effort is not None else 'unset'}, "
           f"timeout {timeout:g} s per request, max_tokens {llm.max_tokens}", flush=True)
     progress = Progress(len(cases), verbose=verbose)
-    report = Report(planned=len(cases))
+    report = Report(planned=len(cases), target=getattr(args, "min_score", None) or TARGET_ACCURACY)
     held: List[Any] = []
 
     def factory(cfg: Config) -> ChatClient:
@@ -706,4 +780,10 @@ def _run_once(base: Dict[str, Any], cases: List[Case], profiles_dir: Path, args,
     print()
     print_report(report, verbose=False, partial=interrupted, model=llm.model,
                  reasoning_effort=llm.reasoning_effort)
-    return RunResult(label or run_label(llm), report, interrupted, wall)
+    if not interrupted and report.all():
+        try:
+            path = write_result(report, llm, label, args.cases, getattr(args, "results_dir", None) or RESULTS_DIR)
+            print(f"result written to {path}")
+        except OSError as err:
+            print(f"result file not written: {err}", file=sys.stderr)
+    return RunResult(label, report, interrupted, wall)

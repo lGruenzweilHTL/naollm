@@ -18,8 +18,16 @@ robot can start to speak.
 WER normalises case, punctuation, British spelling and number words, so
 "Twelve times seven?" and "12 times 7" count as equal.
 
+A model named `gemma:<ollama model>`, such as `gemma:gemma4:e4b`, sends each
+clip as audio input to the chat endpoint instead of Whisper (the Gemma audio
+experiment of the add-laptop-wake-word change). It uses the OpenAI-style
+`input_audio` content part on `llm.base_url` from --config, asks for the
+transcript only, and is scored with the same WER and latency. Its "load" is the
+time of the first, unscored request.
+
 Usage:
   .venv/bin/python spike/stt_bench.py spike/clips
+  .venv/bin/python spike/stt_bench.py spike/clips --models small,gemma:gemma4:e4b --llm
   .venv/bin/python spike/stt_bench.py spike/clips --models small,distil-small.en --llm -v
   .venv/bin/python spike/stt_bench.py spike/clips --tag far --llm --run "gemma4:e2b, reasoning off"
 """
@@ -28,8 +36,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import gc
+import io
 import json
+import urllib.error
+import urllib.request
 import re
 import statistics
 import sys
@@ -172,6 +184,75 @@ def bench_model(name: str, clips: List[Clip], stt_cfg, beam: int, threads: int, 
             print(f"{mark} {latency:5.2f}s  {clip.file.name}  {text!r}" + ("" if not errors else f"  (said {clip.text!r})"))
     del stt, engine
     gc.collect()
+    return run
+
+
+# -- Gemma audio input ------------------------------------------------------
+GEMMA_PREFIX = "gemma:"
+GEMMA_PROMPT = {
+    "en": "Transcribe this audio exactly, in English. Reply with the transcript only.",
+    "de": "Schreib genau auf, was in dieser Aufnahme gesagt wird, auf Deutsch. Antworte nur mit dem Text.",
+}
+GEMMA_TIMEOUT_S = 180.0
+
+
+def wav_bytes(pcm: bytes) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(pcm)
+    return buffer.getvalue()
+
+
+def gemma_transcribe(base_url: str, model: str, pcm: bytes, lang: str) -> str:
+    """One chat request with the clip as `input_audio`. Raises RuntimeError with the endpoint's answer."""
+    body = {
+        "model": model,
+        "temperature": 0,
+        "reasoning_effort": "none",
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": GEMMA_PROMPT.get(lang, GEMMA_PROMPT["en"])},
+            {"type": "input_audio", "input_audio": {"data": base64.b64encode(wav_bytes(pcm)).decode(),
+                                                    "format": "wav"}},
+        ]}],
+    }
+    request = urllib.request.Request(base_url.rstrip("/") + "/chat/completions", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=GEMMA_TIMEOUT_S) as response:
+            data = json.loads(response.read())
+    except urllib.error.HTTPError as err:
+        raise RuntimeError(f"HTTP {err.code}: {err.read().decode(errors='replace')[:300]}") from None
+    return (data["choices"][0]["message"].get("content") or "").strip()
+
+
+def bench_gemma(name: str, clips: List[Clip], base_url: str, verbose: bool) -> ModelRun:
+    model = name[len(GEMMA_PREFIX):]
+    run = ModelRun(name)
+    print(f"\n=== {name} (audio input at {base_url})", flush=True)
+    t = time.monotonic()
+    try:
+        gemma_transcribe(base_url, model, clips[0].pcm, clips[0].lang)  # loads the model; not counted
+    except (RuntimeError, OSError, KeyError) as err:
+        run.skipped = f"no audio input: {err}"
+        return run
+    run.load_s = time.monotonic() - t
+    for clip in clips:
+        t = time.monotonic()
+        try:
+            text = gemma_transcribe(base_url, model, clip.pcm, clip.lang)
+        except (RuntimeError, OSError, KeyError) as err:
+            text = ""
+            print(f"  error {clip.file.name}: {err}")
+        latency = time.monotonic() - t
+        ref = normalise(clip.text)
+        errors = edit_distance(ref, normalise(text))
+        run.results.append(Result(clip, text, latency, errors, len(ref)))
+        if verbose or errors:
+            mark = "  ok " if not errors else f"  {errors:>2}x"
+            print(f"{mark} {latency:5.2f}s  {clip.file.name}  {text!r}" + ("" if not errors else f"  (said {clip.text!r})"))
     return run
 
 
@@ -324,13 +405,15 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true", help="print every transcript, not only wrong ones")
     args = ap.parse_args()
 
-    stt_cfg = load_config(args.config).stt
+    config = load_config(args.config)
+    stt_cfg = config.stt
     clips = load_clips(args.clips, args.tag)
     if not clips:
         print("no clips", file=sys.stderr)
         return 2
     print(f"{len(clips)} clips, languages {stt_cfg.languages}, beam {args.beam}")
-    runs = [bench_model(m.strip(), clips, stt_cfg, args.beam, args.threads, args.verbose)
+    runs = [bench_gemma(m.strip(), clips, config.llm.base_url, args.verbose) if m.strip().startswith(GEMMA_PREFIX)
+            else bench_model(m.strip(), clips, stt_cfg, args.beam, args.threads, args.verbose)
             for m in args.models.split(",") if m.strip()]
     outcomes, label = (score_llm(runs, clips, args) if args.llm else (None, ""))
     report(runs, clips, outcomes, label)

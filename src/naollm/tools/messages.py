@@ -34,6 +34,8 @@ MESSAGES: Dict[str, Dict[str, str]] = {
                        "en": "I can't see who is here right now."},
     "walking_off": {"de": "Laufen ist gerade ausgeschaltet.", "en": "Walking is switched off right now."},
     "battery_low": {"de": "Mein Akku ist zu leer für Bewegungen.", "en": "My battery is too low to move."},
+    "dance_cooldown": {"de": "Ich habe gerade getanzt und muss abkühlen. In {seconds} Sekunden tanze ich wieder.",
+                       "en": "I just danced and need to cool down. I can dance again in {seconds} seconds."},
     "battery_dance": {"de": "Mein Akku ist zu leer zum Tanzen.", "en": "My battery is too low to dance."},
     "too_warm": {"de": "Mir ist zu warm dafür. Ich brauche eine Pause.",
                  "en": "I'm too warm for that. I need a break."},
@@ -42,6 +44,25 @@ MESSAGES: Dict[str, Dict[str, str]] = {
                         "en": "I'm not allowed to walk further than {max} metres."},
     "reserved_colour": {"de": "Diese Augenfarbe kann ich nicht nehmen: {value}.",
                         "en": "I can't use that eye colour: {value}."},
+    "timeout": {"de": "Das hat zu lange gedauert, ich habe aufgehört.", "en": "That took too long, so I stopped."},
+    "not_installed": {"de": "Diese Bewegung habe ich gerade nicht.", "en": "I don't have that move right now."},
+    "age_game_off": {"de": "Das Alter-Raten ist gerade ausgeschaltet.",
+                     "en": "The age guessing game is switched off right now."},
+    "age_nobody": {"de": "Ich sehe gerade niemanden vor mir.", "en": "I can't see anyone in front of me."},
+    "age_several": {"de": "Ich sehe mehrere Leute. Ich rate nur, wenn eine Person allein vor mir steht.",
+                    "en": "I can see several people. I only guess when one person stands in front of me alone."},
+    "age_unsure": {"de": "Ich kann dich nicht gut genug sehen, um zu raten.",
+                   "en": "I can't see you well enough to guess."},
+    "age_range": {"de": "Ich schätze, du bist zwischen {low} und {high} Jahre alt. "
+                        "Aber ich bin nur ein Roboter, ich kann mich irren!",
+                  "en": "I'd guess you are between {low} and {high} years old. "
+                        "But I'm only a robot, so I might be wrong!"},
+    "age_very_young": {"de": "Du siehst für mich sehr jung aus!", "en": "You look very young to me!"},
+    "age_very_old": {"de": "Du siehst für mich sehr erwachsen aus!", "en": "You look very grown-up to me!"},
+    "age_told": {"de": "dem Besuch ein ungefähres Alter gesagt", "en": "told the visitor a rough age range"},
+    "notice_age": {"de": "Wenn du mich darum bittest, schätze ich ungefähr dein Alter. "
+                         "Die Schätzung wird nicht gespeichert.",
+                   "en": "If you ask me, I can roughly guess your age. The guess is not stored."},
     "robot_error": {"de": "Das hat leider nicht geklappt.", "en": "Sorry, that didn't work."},
     "fallback": {"de": "Da bin ich durcheinander gekommen.", "en": "I got a bit confused there."},
     "apology": {"de": "Entschuldigung, mir fällt gerade keine Antwort ein.",
@@ -57,6 +78,10 @@ MESSAGES: Dict[str, Dict[str, str]] = {
                "en": "Say {wake} or tap the front of my head. Then I listen for a moment. "
                      "Speech is processed locally and is not stored. "
                      "I recognize faces only of club members who consented."},
+    "notice_streaming": {"de": "Mein Mikrofon schickt die ganze Zeit Ton an den Laptop. Dort wird er nur "
+                                 "auf das Weckwort geprüft und gleich wieder verworfen.",
+                         "en": "My microphone sends audio to the laptop all the time. There it is only "
+                               "checked for the wake phrase and then discarded."},
     "notice_tracking": {"de": "Meine Kamera merkt nur, dass jemand da ist, und ich drehe den Kopf zu dir.",
                         "en": "My camera only notices that someone is there, and I turn my head to you."},
     "battery_critical": {"de": "Mein Akku ist fast leer. Ich setze mich hin und ruhe mich aus.",

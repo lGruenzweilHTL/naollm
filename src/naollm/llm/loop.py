@@ -103,7 +103,8 @@ class ConversationLoop:
     def _messages(self, user_text: str, lang: str) -> List[Dict[str, Any]]:
         cfg = self.bridge.config.conversation
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt(lang, cfg.school_name, self.bridge.motors_enabled)}
+            {"role": "system", "content": system_prompt(lang, cfg.school_name, self.bridge.motors_enabled,
+                                                        self.bridge.age_game)}
         ]
         turns = self.history[-cfg.history_turns:] if cfg.history_turns else []
         for user, answer in turns:

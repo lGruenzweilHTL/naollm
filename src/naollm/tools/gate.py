@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from naollm.robot.adapter import RobotStatus
+from naollm.robot.adapter import MotionFailed, RobotStatus
 from naollm.state import State
-from naollm.tools.handlers import HANDLERS
+from naollm.tools.handlers import HANDLERS, ToolRefused
 from naollm.tools.messages import msg
-from naollm.tools.schemas import LED, MOTION, STATUS_COLOURS, STOP, ArgError, ToolSpec, check_args
+from naollm.tools.schemas import LED, MOTION, SPEAK, STATUS_COLOURS, STOP, ArgError, ToolSpec, check_args
 
 if TYPE_CHECKING:
     from naollm.bridge import Bridge
@@ -91,9 +92,11 @@ class Gate:
             return self._fail("motors_off", lang)
         if spec.name == "who_is_here" and not bridge.robot.perception.available:
             return self._fail("perception_off", lang)
+        if spec.name == "guess_age" and not bridge.age_game:
+            return self._fail("age_game_off", lang)
         assert args is not None
 
-        if spec.category not in (MOTION, LED):
+        if spec.category not in (MOTION, LED, SPEAK):
             return self._execute(spec, args, lang)
 
         status = bridge.robot.events.status()
@@ -106,7 +109,7 @@ class Gate:
                 return self._fail("fallen", lang)
             if current in _STATE_REASONS:
                 return self._fail(_STATE_REASONS[current], lang)
-            if spec.category == LED:
+            if spec.category in (LED, SPEAK):
                 return self._execute(spec, args, lang)
             if current == State.ACTING:
                 return self._fail("already_moving", lang)
@@ -119,12 +122,18 @@ class Gate:
                 return self._fail("already_moving", lang)
             previous = current
             bridge.state.transition(State.ACTING)
+        # `look` switches tracking itself; every other motion pauses it (qi-robot-adapter spec).
+        paused = False
         try:
+            if spec.name != "look":
+                paused = bridge.pause_tracking()
             return self._execute(spec, args, lang)
         finally:
             with bridge.state.lock:
                 if not bridge.state.transition_from(State.ACTING, previous):
                     bridge.state.transition_from(State.ACTING, State.IDLE)
+            if paused:
+                bridge.resume_tracking()
             self.motion_lock.release()
             bridge.touch()
 
@@ -151,6 +160,10 @@ class Gate:
             return "walking_off", {}
         if name == "dance" and status.battery_pct < cfg.battery_dance_min_pct:
             return "battery_dance", {}
+        if name == "dance" and cfg.dance_cooldown_s > 0 and self.bridge.last_dance_end is not None:
+            left = cfg.dance_cooldown_s - (self.bridge.clock() - self.bridge.last_dance_end)
+            if left > 0:
+                return "dance_cooldown", {"seconds": math.ceil(left)}
         required = self._required_posture(spec, args)
         if required is not None and status.posture != required:
             if required == "Stand":
@@ -185,7 +198,13 @@ class Gate:
         return None
 
     def _execute(self, spec: ToolSpec, args: Dict[str, Any], lang: str) -> GateResult:
-        outcome = HANDLERS[spec.name](self.bridge, args, lang)
+        try:
+            outcome = HANDLERS[spec.name](self.bridge, args, lang)
+        except MotionFailed as err:
+            self.bridge.log.log("warning", f"{spec.name} failed: {err}")
+            return self._fail(err.reason, lang, detail=err.detail)
+        except ToolRefused as err:
+            return self._fail(err.reason, lang)
         return GateResult(True, result=outcome)
 
     def _log(self, name: str, args: Any, source: str, result: GateResult, seconds: float) -> None:

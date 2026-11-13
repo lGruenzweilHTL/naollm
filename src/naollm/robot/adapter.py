@@ -62,8 +62,25 @@ class WakeHit:
     confidence: float
 
 
+@dataclass(frozen=True)
+class AgeEstimate:
+    """The age game's only input (SPEC §8.6). Never stored, logged or sent to the LLM."""
+
+    age: float
+    confidence: float
+
+
 class MotorsDisabled(RuntimeError):
     """A motion command reached an adapter that has no motor code."""
+
+
+class MotionFailed(RuntimeError):
+    """A motion did not run or did not end normally. `reason` is a gate reason, such as `timeout`."""
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
 
 
 class RobotOffline(RuntimeError):
@@ -136,6 +153,8 @@ class Perception(Protocol):
     def learn_face(self, name: str) -> bool: ...
     def forget_face(self, name: str) -> bool: ...
     def forget_all_faces(self) -> bool: ...
+    def probe_age(self) -> bool: ...
+    def estimate_age(self) -> Optional[AgeEstimate]: ...
 
 
 @runtime_checkable
@@ -152,3 +171,4 @@ class RobotAdapter(Protocol):
     def rest_problem(self, check_life: bool = True) -> Optional[str]: ...
     def autonomous_life(self) -> str: ...
     def disable_autonomous_life(self) -> None: ...
+    def set_robot_name(self, name: str) -> None: ...

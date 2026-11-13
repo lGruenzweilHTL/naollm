@@ -13,9 +13,46 @@ PROFILES = ROOT / "tests" / "eval" / "profiles"
 
 def test_case_file_is_valid():
     cases = load_cases(ROOT / "tests" / "eval" / "tool_calls.yaml")
-    assert len(cases) == 41
-    assert {c.profile for c in cases} == {"event_default", "walking_on"}
+    assert len(cases) == 72
+    assert {c.profile for c in cases} == {"event_default", "walking_on", "age_game_on"}
     assert {c.lang for c in cases} == {"de", "en"}
+
+
+def test_every_german_case_has_an_english_counterpart():
+    cases = load_cases(ROOT / "tests" / "eval" / "tool_calls.yaml")
+    for profile in ("event_default", "walking_on", "age_game_on"):
+        mine = [c for c in cases if c.profile == profile]
+        de = [c for c in mine if c.lang == "de"]
+        en = [c for c in mine if c.lang == "en"]
+        assert len(en) >= len(de), profile
+        expectations = [str(c.expect) for c in en]
+        for case in de:
+            assert str(case.expect) in expectations, (profile, case.prompt)
+
+
+def test_report_shows_each_language(tmp_path, capsys):
+    """A weak language is not hidden in the profile's average."""
+    good = {"profile": "event_default", "lang": "en", "prompt": "Wave!", "expect": {"tool": "play_gesture"}}
+    cases = [dict(good, prompt=f"Wave {i}") for i in range(4)] + [
+        {"profile": "event_default", "prompt": "Wink!", "expect": {"tool": "play_gesture"}},
+        {"profile": "event_default", "prompt": "Wink nochmal!", "expect": {"tool": "play_gesture"}},
+    ]
+    wave = [call("play_gesture", {"name": "wave"})]
+    report = _run(tmp_path, cases, {"event_default": [wave] * 5 + [["Nein."]]})
+    assert report.accuracy("event_default", "en") == 1.0
+    assert report.accuracy("event_default", "de") == 0.5
+    print_report(report)
+    out = capsys.readouterr().out
+    assert "event_default: 5/6 correct (83%)" in out
+    assert "  en: 4/4 correct (100%)" in out
+    assert "  de: 1/2 correct (50%)  below target" in out
+
+
+def test_case_without_language_counts_as_german(tmp_path):
+    report = _run(tmp_path, [{"profile": "event_default", "prompt": "Wink!", "expect": {"tool": "play_gesture"}}],
+                  {"event_default": [[call("play_gesture", {"name": "wave"})]]})
+    assert report.languages() == ["de"]
+    assert report.accuracy("event_default", "de") == 1.0
 
 
 def test_runner_reports_per_profile(tmp_path, capsys):
@@ -435,7 +472,7 @@ def test_matrix_runs_each_setting_and_compares(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "eval matrix: 3 runs" in out and "=== run 3/3: good thinking" in out
     table = out[out.index("comparison of 3 runs"):].splitlines()
-    assert table[1].split()[:3] == ["run", "event_default", "target"]
+    assert table[1].split()[:4] == ["run", "event_default", "de", "target"]
     assert "good, reasoning off" in table[2] and "1/1 100%" in table[2] and " met " in table[2]
     assert "bad, reasoning off" in table[3] and "0/1 0%" in table[3] and "NOT met" in table[3]
     assert table[4].startswith("  good thinking")
@@ -465,3 +502,84 @@ def test_matrix_interrupt_stops_and_compares_partial(tmp_path, monkeypatch, caps
     assert "matrix stopped: 1 run not started" in captured.err
     assert "comparison of 1 run" in captured.out
     assert "a, reasoning off (partial)" in captured.out
+
+
+# -- result file and --min-score (harden-for-event) -----------------------------------------
+
+def _cli(tmp_path, monkeypatch, cases, replies, **extra):
+    from types import SimpleNamespace
+
+    import naollm.eval as ev
+    import naollm.llm.client as client_mod
+
+    scripts = [[("text", r)] if isinstance(r, str) else r for r in replies]
+    client = TracedClient(scripts)  # one script queue across profiles
+    monkeypatch.setattr(client_mod, "OpenAIChatClient", lambda cfg, residency=None: client)
+    args = SimpleNamespace(cases=str(_cases_file(tmp_path, cases)), profiles=str(PROFILES), verbose=False,
+                           no_warmup=True, timeout=None, run=None, config=str(ROOT / "config.example.yaml"),
+                           results_dir=str(tmp_path / "results"), **extra)
+    return ev.run_eval_cli(args), args
+
+
+def test_finished_run_writes_scores_and_hash_but_no_replies(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    cases = [{"profile": "event_default", "prompt": "Was ist ein Roboter?", "expect": {"no_tool": True}},
+             {"profile": "event_default", "lang": "en", "prompt": "What is a robot?", "expect": {"no_tool": True}}]
+    code, args = _cli(tmp_path, monkeypatch, cases, ["Ein Roboter ist eine Maschine.", "A machine."])
+    assert code == 0
+    path = tmp_path / "results" / "gemma4_e4b.json"
+    data = json.loads(path.read_text())
+    assert data["model"] == "gemma4:e4b"
+    assert data["case_file_sha256"] == hashlib.sha256(Path(args.cases).read_bytes()).hexdigest()
+    assert data["profiles"]["event_default"]["score"] == 1.0
+    assert data["profiles"]["event_default"]["languages"] == {"de": 1.0, "en": 1.0}
+    assert data["settings"]["reasoning_effort"] == "none" and data["passed"] is True
+    text = path.read_text()
+    assert "Maschine" not in text and "machine" not in text and "Roboter?" not in text
+
+
+def test_interrupted_run_writes_no_file(tmp_path, monkeypatch):
+    import naollm.eval as ev
+    import naollm.llm.client as client_mod
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(client_mod, "OpenAIChatClient",
+                        lambda cfg, residency=None: TracedClient([[("text", "Ja.")]], interrupt_after=1))
+    cases = [{"profile": "event_default", "prompt": f"Frage {i}", "expect": {"no_tool": True}} for i in range(2)]
+    args = SimpleNamespace(cases=str(_cases_file(tmp_path, cases)), profiles=str(PROFILES), verbose=False,
+                           no_warmup=True, timeout=None, run=None, config=str(ROOT / "config.example.yaml"),
+                           results_dir=str(tmp_path / "results"))
+    assert ev.run_eval_cli(args) == 130
+    assert not (tmp_path / "results").exists()
+
+
+def test_min_score_names_the_profile_below_it(tmp_path, monkeypatch, capsys):
+    cases = ([{"profile": "event_default", "prompt": f"Frage {i}", "expect": {"no_tool": True}} for i in range(10)]
+             + [{"profile": "walking_on", "prompt": f"Frage {i}", "expect": {"no_tool": True}} for i in range(10)])
+    replies = ["Ja."] * 10 + ["Ja."] * 9 + [[("tool", call("turn", {"degrees": 10}))]]
+    code, _ = _cli(tmp_path, monkeypatch, cases, replies, min_score=0.95)
+    assert code != 0
+    assert "NOT met, below: walking_on" in capsys.readouterr().out
+
+
+def test_default_target_passes_at_90_percent(tmp_path, monkeypatch, capsys):
+    cases = [{"profile": "walking_on", "prompt": f"Frage {i}", "expect": {"no_tool": True}} for i in range(10)]
+    replies = ["Ja."] * 9 + [[("tool", call("turn", {"degrees": 10}))]]
+    code, _ = _cli(tmp_path, monkeypatch, cases, replies, min_score=None)
+    assert code == 0
+    assert "target 90% per profile: met" in capsys.readouterr().out
+
+
+def test_min_score_out_of_range(tmp_path, monkeypatch):
+    code, _ = _cli(tmp_path, monkeypatch, [{"profile": "event_default", "prompt": "x", "expect": {"no_tool": True}}],
+                   ["Ja."], min_score=1.5)
+    assert code == 2
+
+
+def test_result_path_is_safe():
+    from naollm.eval import result_path
+
+    assert result_path("gemma4:e4b", "/x").name == "gemma4_e4b.json"
+    assert result_path("../evil/model", "/x").parent == Path("/x")

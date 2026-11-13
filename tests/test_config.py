@@ -24,7 +24,7 @@ def test_example_config_loads():
     cfg = load_config(ROOT / "config.example.yaml")
     assert cfg.llm.model == "gemma4:e4b"
     assert cfg.gestures["victory"] == "anim:victory"
-    assert cfg.audio.wake_language == "English"
+    assert cfg.audio.wake_language == "German"
     assert cfg.event_mode is True
 
 
@@ -128,12 +128,14 @@ def test_no_speech_timeout_must_be_positive():
 def test_example_targets_this_robot():
     cfg = load_config(ROOT / "config.example.yaml")
     assert cfg.motion.motors_enabled is False
-    assert cfg.robot.language == "English" and cfg.robot.battery_reliable is False
-    assert cfg.stt.languages == ["en"] and cfg.stt.fallback_language == "en"
-    assert cfg.audio.wake_language == "English" and cfg.audio.wake_words == ["Hey NAO"]
+    assert cfg.robot.language == "German" and cfg.robot.battery_reliable is False
+    assert cfg.stt.languages == ["de", "en"] and cfg.stt.fallback_language == "de"
+    assert cfg.audio.wake_language == "German" and cfg.audio.wake_words == ["Hallo NAO", "Hey NAO"]
+    assert cfg.conversation.school_name == "unserer Schule"
     assert cfg.audio.wake_threshold == 0.4
     assert cfg.privacy.face_recognition_enabled is False
-    assert "German" in (ROOT / "config.example.yaml").read_text()
+    text = (ROOT / "config.example.yaml").read_text()
+    assert "English only" in text and "stt.languages: [en]" in text
 
 
 def test_only_url_keeps_german_and_motors():

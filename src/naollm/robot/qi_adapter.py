@@ -1,11 +1,14 @@
-"""Real robot transport over `qi` (SPEC §6.2), with no motor code.
+"""Real robot transport over `qi` (SPEC §6.2).
 
 `qi` is imported only when connecting, so the package and its tests work without it.
 
-Motion stays out on purpose: `QiMotion` reads and refuses. Calling NAOqi for
-stiffness, posture, behaviors, animations or head tracking is not possible from
-here, so a bug or a wrong config value cannot move the robot. `tests/qi_double.py`
-fails on any NAOqi call outside its allowlist.
+The motion class is chosen once, when the adapter connects, from
+`motion.motors_enabled`. `QiMotionDisabled` reads and refuses: it has no code that
+calls NAOqi for stiffness, posture, behaviors, animations or head tracking, so with
+motors off a bug or a wrong config value cannot move the robot. `QiMotion` is the
+real transport, with fixed speeds and NAOqi's fall manager, collision protection
+and smart stiffness left on. `tests/qi_double.py` fails on any NAOqi call outside
+the allowlist of the mode, and on the protection calls in both modes.
 """
 
 from __future__ import annotations
@@ -17,9 +20,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from naollm.animations.limits import NAO6_LIMITS
 from naollm.robot.adapter import (
     HEAD_SPEED,
+    AgeEstimate,
     POSTURE_SPEED,
     EventKind,
     Keyframes,
+    MotionFailed,
     MotorsDisabled,
     Outcome,
     RobotEvent,
@@ -39,7 +44,17 @@ STATUS_TTL_S = 0.5
 BODY_ID_KEY = "Device/DeviceList/ChestBoard/BodyId"
 PERCEPTION_CLIENT = "NaollmPerception"
 VISIBLE_PEOPLE_KEY = "PeoplePerception/VisiblePeopleList"
+# The only value read after analyzeFaceCharacteristics: [age, confidence]. Gender, smile and
+# expression keys exist next to it and are never read (age-game spec).
+AGE_KEY = "PeoplePerception/Person/{id}/AgeProperties"
 RECOGNITION_MEMORY_S = 5.0
+HEAD_JOINTS = ["HeadYaw", "HeadPitch"]
+POLL_S = 0.05
+BEHAVIOR_LIMIT_S = 35.0     # SPEC §9: a behavior finishes within 30 s; 5 s margin
+ANIMATION_LIMIT_S = 35.0
+KEYFRAME_MARGIN_S = 5.0     # on top of the animation's own duration
+MOVE_LIMIT_S = 30.0         # 30 cm or 90 degrees take far less
+BALANCE_SUPPORT = "Legs"
 TOUCH_EVENTS = {
     "FrontTactilTouched": EventKind.FRONT_HEAD,
     "MiddleTactilTouched": EventKind.MIDDLE_HEAD,
@@ -93,8 +108,202 @@ def face_labels(value: Any) -> List[str]:
     return names
 
 
+class _Timeout(Exception):
+    pass
+
+
+def _read_limits(robot: "QiRobot") -> Dict[str, Tuple[float, float, float]]:
+    """Radians (hands 0..1): joint -> (min, max, max velocity)."""
+    motion = robot.service("ALMotion")
+    limits = {}
+    for joint in NAO6_LIMITS:
+        raw = motion.getLimits(joint)
+        # NAOqi 2.8.5.11 returns [[min, max, max_velocity, max_torque]].
+        row = raw[0] if raw and isinstance(raw[0], (list, tuple)) else raw
+        limits[joint] = (float(row[0]), float(row[1]), float(row[2]))
+    return limits
+
+
 class QiMotion:
-    """Reads only. Every other method refuses without touching NAOqi."""
+    """Real motion (SPEC §6.2). Speeds are the fixed constants above, never a caller's value.
+
+    Long motions run with `_async=True` and are waited on here, so a stop call
+    from another thread (the emergency stop) can end them. Each running motion
+    has its own token, so the Crouch that follows a stop cannot make an
+    interrupted motion look finished.
+    """
+
+    def __init__(self, robot: "QiRobot") -> None:
+        self._robot = robot
+        self._lock = threading.Lock()
+        self._active: List[threading.Event] = []
+        self._animations: List[Any] = []
+        self._keyframe_joints: List[str] = []
+
+    # -- helpers ----------------------------------------------------------
+    def _service(self, name: str) -> Any:
+        return self._robot.service(name)
+
+    def _begin(self) -> threading.Event:
+        token = threading.Event()
+        with self._lock:
+            self._active.append(token)
+        return token
+
+    def _end(self, token: threading.Event) -> None:
+        with self._lock:
+            if token in self._active:
+                self._active.remove(token)
+        self._robot.events.invalidate()
+
+    def _interrupt(self) -> None:
+        with self._lock:
+            for token in self._active:
+                token.set()
+
+    def _wait(self, future: Any, token: threading.Event, limit_s: float, what: str) -> Outcome:
+        deadline = time.monotonic() + limit_s
+        while not future.isFinished():
+            if time.monotonic() >= deadline:
+                raise _Timeout
+            time.sleep(POLL_S)
+        if token.is_set():
+            return "interrupted"
+        if future.hasError():
+            raise RuntimeError(f"{what} failed: {future.error()}")
+        return "finished"
+
+    # -- reading ------------------------------------------------------------
+    def installed_behaviors(self) -> List[str]:
+        return list(self._service("ALBehaviorManager").getInstalledBehaviors())
+
+    def joint_limits(self) -> Dict[str, Tuple[float, float, float]]:
+        return _read_limits(self._robot)
+
+    # -- behaviors and animations --------------------------------------------
+    def run_behavior(self, path: str) -> Outcome:
+        manager = self._service("ALBehaviorManager")
+        if path not in manager.getInstalledBehaviors():
+            raise MotionFailed("not_installed", path)
+        token = self._begin()
+        try:
+            future = manager.runBehavior(path, _async=True)
+            try:
+                return self._wait(future, token, BEHAVIOR_LIMIT_S, path)
+            except _Timeout:
+                manager.stopBehavior(path)
+                raise MotionFailed("timeout", f"{path} ran longer than {BEHAVIOR_LIMIT_S:g} s") from None
+        finally:
+            self._end(token)
+
+    def play_animation(self, path: str) -> Outcome:
+        token = self._begin()
+        future = self._service("ALAnimationPlayer").run(path, _async=True)
+        with self._lock:
+            self._animations.append(future)
+        try:
+            try:
+                return self._wait(future, token, ANIMATION_LIMIT_S, path)
+            except _Timeout:
+                future.cancel()
+                raise MotionFailed("timeout", f"{path} ran longer than {ANIMATION_LIMIT_S:g} s") from None
+        finally:
+            with self._lock:
+                if future in self._animations:
+                    self._animations.remove(future)
+            self._end(token)
+
+    def play_keyframes(self, frames: Keyframes) -> Outcome:
+        motion = self._service("ALMotion")
+        token = self._begin()
+        with self._lock:
+            self._keyframe_joints = list(frames.names)
+        try:
+            if frames.bezier:
+                future = motion.angleInterpolationBezier(frames.names, frames.times, frames.angles, _async=True)
+            else:
+                future = motion.angleInterpolation(frames.names, frames.angles, frames.times, True, _async=True)
+            try:
+                return self._wait(future, token, frames.duration_s + KEYFRAME_MARGIN_S, "keyframes")
+            except _Timeout:
+                motion.killTasksUsingResources(list(frames.names))
+                raise MotionFailed("timeout", "keyframe playback did not end") from None
+        finally:
+            with self._lock:
+                self._keyframe_joints = []
+            self._end(token)
+
+    def stop_all_behaviors(self) -> None:
+        """Stops behaviors, built-in animations and keyframe playback. Every part runs."""
+        self._interrupt()
+        with self._lock:
+            animations = list(self._animations)
+            joints = list(self._keyframe_joints)
+        steps: List[Callable[[], Any]] = [lambda: self._service("ALBehaviorManager").stopAllBehaviors()]
+        steps += [future.cancel for future in animations]
+        if joints:
+            steps.append(lambda: self._service("ALMotion").killTasksUsingResources(joints))
+        errors = []
+        for step in steps:
+            try:
+                step()
+            except Exception as err:
+                errors.append(err)
+        if errors:
+            raise errors[0]
+
+    def set_balancer(self, enabled: bool) -> None:
+        motion = self._service("ALMotion")
+        if enabled:
+            motion.wbEnable(True)
+            motion.wbFootState("Fixed", BALANCE_SUPPORT)
+            motion.wbEnableBalanceConstraint(True, BALANCE_SUPPORT)
+        else:
+            motion.wbEnable(False)
+
+    # -- postures, walking, head ----------------------------------------------
+    def go_to_posture(self, name: str, speed: float = POSTURE_SPEED) -> bool:
+        # `speed` is ignored on purpose: the adapter's constant is the only speed.
+        try:
+            return bool(self._service("ALRobotPosture").goToPosture(name, POSTURE_SPEED))
+        finally:
+            self._robot.events.invalidate()  # the next gate check must see the new posture
+
+    def move_to(self, x_m: float, y_m: float, theta_rad: float) -> Outcome:
+        motion = self._service("ALMotion")
+        token = self._begin()
+        try:
+            future = motion.moveTo(float(x_m), float(y_m), float(theta_rad), _async=True)
+            try:
+                return self._wait(future, token, MOVE_LIMIT_S, "moveTo")
+            except _Timeout:
+                motion.stopMove()
+                raise MotionFailed("timeout", f"moveTo did not end within {MOVE_LIMIT_S:g} s") from None
+        finally:
+            self._end(token)
+
+    def stop_move(self) -> None:
+        self._interrupt()
+        self._service("ALMotion").stopMove()
+
+    def set_head(self, yaw_rad: float, pitch_rad: float, speed: float = HEAD_SPEED) -> None:
+        self._service("ALMotion").setAngles(list(HEAD_JOINTS), [float(yaw_rad), float(pitch_rad)], HEAD_SPEED)
+
+    def rest(self) -> None:
+        try:
+            self._service("ALMotion").rest()
+        finally:
+            self._robot.events.invalidate()
+
+    def wake_up(self) -> None:
+        try:
+            self._service("ALMotion").wakeUp()
+        finally:
+            self._robot.events.invalidate()
+
+
+class QiMotionDisabled:
+    """Motors off: reads only. Every other method refuses without touching NAOqi."""
 
     def __init__(self, robot: "QiRobot") -> None:
         self._robot = robot
@@ -103,15 +312,7 @@ class QiMotion:
         return list(self._robot.service("ALBehaviorManager").getInstalledBehaviors())
 
     def joint_limits(self) -> Dict[str, Tuple[float, float, float]]:
-        """Radians (hands 0..1): joint -> (min, max, max velocity)."""
-        motion = self._robot.service("ALMotion")
-        limits = {}
-        for joint in NAO6_LIMITS:
-            raw = motion.getLimits(joint)
-            # NAOqi 2.8.5.11 returns [[min, max, max_velocity, max_torque]].
-            row = raw[0] if raw and isinstance(raw[0], (list, tuple)) else raw
-            limits[joint] = (float(row[0]), float(row[1]), float(row[2]))
-        return limits
+        return _read_limits(self._robot)
 
     def run_behavior(self, path: str) -> Outcome:
         raise MotorsDisabled("run_behavior")
@@ -150,13 +351,36 @@ class QiMotion:
 class QiSpeech:
     def __init__(self, robot: "QiRobot") -> None:
         self._robot = robot
+        self._lock = threading.Lock()
+        self._animated: Optional[Any] = None
 
     def say(self, text: str, animated: bool = True) -> None:
-        # `animated` is ignored: ALAnimatedSpeech moves the arms.
-        self._robot.service("ALTextToSpeech").say(text)
+        """Blocks until the sentence ends. ALAnimatedSpeech moves the arms, so it needs motors on."""
+        if not (animated and self._robot.motors_live):
+            self._robot.service("ALTextToSpeech").say(text)
+            return
+        future = self._robot.service("ALAnimatedSpeech").say(text, _async=True)
+        with self._lock:
+            self._animated = future
+        try:
+            while not future.isFinished():
+                time.sleep(POLL_S)
+            if future.hasError() and not future.isCanceled():
+                raise RuntimeError(f"animated speech failed: {future.error()}")
+        finally:
+            with self._lock:
+                if self._animated is future:
+                    self._animated = None
 
     def stop_speech(self) -> None:
-        self._robot.service("ALTextToSpeech").stopAll()
+        """Stops plain and animated speech; both parts run."""
+        with self._lock:
+            animated, self._animated = self._animated, None
+        try:
+            self._robot.service("ALTextToSpeech").stopAll()
+        finally:
+            if animated is not None:
+                animated.cancel()
 
     def set_language(self, language: str) -> None:
         tts = self._robot.service("ALTextToSpeech")
@@ -383,6 +607,10 @@ class QiEvents:
                 break
 
     # -- status ----------------------------------------------------------
+    def invalidate(self) -> None:
+        """After a motion: the next `status()` reads the robot again."""
+        self._status_time = 0.0
+
     def status(self) -> RobotStatus:
         """Read-only. The console polls this every second, so results are kept briefly."""
         if not self._robot.connected:
@@ -429,8 +657,9 @@ class QiEvents:
 class QiPerception:
     """Faces and people through NAOqi. No camera frame leaves the robot, and names stay in memory.
 
-    Head tracking is a motor command, so `set_tracking` does nothing and `start`
-    switches off the tracking that ALFaceDetection reports as on by default.
+    `start` switches off the tracking that ALFaceDetection reports as on by
+    default. Head tracking is a motor command: with motors on, `set_tracking`
+    uses ALBasicAwareness in head-only mode, and with motors off it does nothing.
     """
 
     def __init__(self, robot: "QiRobot") -> None:
@@ -496,7 +725,14 @@ class QiPerception:
                 self._seen[name] = now
 
     def set_tracking(self, enabled: bool) -> None:
-        pass
+        if not self._robot.motors_live:
+            return
+        awareness = self._robot.service("ALBasicAwareness")
+        if enabled:
+            awareness.setTrackingMode("Head")
+            awareness.setEnabled(True)
+        else:
+            awareness.setEnabled(False)
 
     def people_count(self) -> int:
         visible = self._robot.service("ALMemory").getData(VISIBLE_PEOPLE_KEY)
@@ -524,10 +760,38 @@ class QiPerception:
         detection.clearDatabase()
         return not detection.getLearnedFacesList()
 
+    # -- age game (SPEC §8.6) ---------------------------------------------
+    def probe_age(self) -> bool:
+        """The service exists and has the call. Takes no estimate: nobody asked yet."""
+        try:
+            service = self._robot.service("ALFaceCharacteristics")
+        except Exception as err:
+            self._robot.log("warning", f"ALFaceCharacteristics unavailable: {err!r}")
+            return False
+        return callable(getattr(service, "analyzeFaceCharacteristics", None))
+
+    def estimate_age(self) -> Optional[AgeEstimate]:
+        """For exactly one visible person, or None. Reads the age and its confidence only."""
+        memory = self._robot.service("ALMemory")
+        visible = memory.getData(VISIBLE_PEOPLE_KEY) or []
+        if len(visible) != 1:
+            return None
+        person = visible[0]
+        if not self._robot.service("ALFaceCharacteristics").analyzeFaceCharacteristics(person):
+            return None
+        value = memory.getData(AGE_KEY.format(id=person))
+        try:
+            return AgeEstimate(float(value[0]), float(value[1]))
+        except (IndexError, TypeError, ValueError):
+            return None
+
 
 class QiRobot:
-    def __init__(self, listen_ip: Optional[str] = None, qi_module: Any = None, log: Optional[Log] = None) -> None:
+    def __init__(self, listen_ip: Optional[str] = None, qi_module: Any = None, log: Optional[Log] = None,
+                 motors_enabled: bool = False) -> None:
         self.listen_ip = listen_ip
+        self.motors_enabled = motors_enabled
+        self.motors_live = False  # True once QiMotion is chosen; never changes back
         self._qi = qi_module
         self._app: Any = None
         self._session: Any = None
@@ -536,7 +800,8 @@ class QiRobot:
         self._lost = False
         self.connected = False
         self.log: Log = log or (lambda kind, message: None)
-        self.motion = QiMotion(self)
+        self.motion: Any = QiMotionDisabled(self)
+        self._motion_chosen = False
         self.speech = QiSpeech(self)
         self.audio = QiAudio(self)
         self.events = QiEvents(self)
@@ -551,9 +816,19 @@ class QiRobot:
     def service(self, name: str) -> Any:
         return self.session().service(name)
 
+    def _choose_motion(self) -> None:
+        """Once per adapter, at the first connect. A reconnect keeps the choice."""
+        if self._motion_chosen:
+            return
+        self._motion_chosen = True
+        if self.motors_enabled:
+            self.motion = QiMotion(self)
+            self.motors_live = True
+
     def connect(self, url: str) -> None:
         qi = self._qi or _import_qi()
         self._qi = qi
+        self._choose_motion()
         self._connecting = True
         try:
             if self._app is None:
@@ -645,3 +920,7 @@ class QiRobot:
     def disable_autonomous_life(self) -> None:
         """`naollm init` only, after the operator confirms a safe position."""
         self.service("ALAutonomousLife").setState("disabled")
+
+    def set_robot_name(self, name: str) -> None:
+        """`naollm init --name` only."""
+        self.service("ALSystem").setRobotName(name)

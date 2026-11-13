@@ -217,9 +217,9 @@ def test_direct_motion_call_raises():
 
 # -- main ------------------------------------------------------------------
 
-def write_config(tmp_path, motors="false"):
+def write_config(tmp_path, motors="false", battery="true"):
     path = tmp_path / "c.yaml"
-    path.write_text(f"robot: {{url: '{URL}', language: English}}\n"
+    path.write_text(f"robot: {{url: '{URL}', language: English, battery_reliable: {battery}}}\n"
                     f"motion: {{motors_enabled: {motors}}}\n"
                     f"stt: {{languages: [en], fallback_language: en}}\n"
                     f"audio: {{wake_language: English, wake_words: ['Hey NAO']}}\n"
@@ -229,11 +229,11 @@ def write_config(tmp_path, motors="false"):
     return path
 
 
-def test_real_run_with_motors_enabled_exits_before_connecting(tmp_path, capsys, monkeypatch):
+def test_unreliable_battery_with_motors_exits_before_connecting(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("naollm.robot.qi_adapter.QiRobot.connect",
-                        lambda *a: pytest.fail("connected with motors enabled"))
-    assert main(["run", "--config", str(write_config(tmp_path, "true"))]) == 2
-    assert "real motion is not implemented yet" in capsys.readouterr().err
+                        lambda *a: pytest.fail("connected with motors on and an unreliable battery"))
+    assert main(["run", "--config", str(write_config(tmp_path, "true", battery="false"))]) == 2
+    assert "robot.battery_reliable" in capsys.readouterr().err
 
 
 def test_missing_qi_names_the_extra(tmp_path, capsys, monkeypatch):

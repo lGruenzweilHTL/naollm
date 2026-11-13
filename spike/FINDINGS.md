@@ -179,3 +179,21 @@ Checked against a fake session, then run on the robot in the second run above.
 - [ ] ROS 2 `naoqi_driver2` needed (SPEC §13 b)
 - [ ] Audio via `ALAudioRecorder` fallback
 - [ ] **Open: how to handle German**, which the robot has neither for TTS nor for ASR. Try the store route under "Installing German" first.
+
+## Gemma audio input (add-laptop-wake-word, task 5.1)
+
+Checked on 2026-11-10 on the operator laptop, Ollama 0.40.14.
+
+- `ollama show gemma4:e4b` lists the capability `audio`.
+- A chat request to `/v1/chat/completions` with an OpenAI-style `input_audio` content part (base64 WAV, 16 kHz mono) works. The first 3.7 s raw clip `spike/clips/raw/20261107-224515-01.wav` came back as `'Can you dance?'`, in 15.1 s including the model load.
+- So no other runtime is needed for the experiment. `spike/stt_bench.py` takes `--models small,gemma:gemma4:e4b` and scores Gemma with the same WER and latency as Whisper.
+- Not done yet: the comparison itself (task 5.3). `spike/clips/` holds only raw streams so far; cut clips with a `clips.yaml` are needed (`spike/record_clips.py`), in German and English.
+
+## Age game eval (add-age-game, task 5.3)
+
+2026-11-10, `gemma4:e4b`, reasoning off, the 10 `age_game_on` cases only, on the laptop CPU:
+
+- `age_game_on`: 9/10 (90 %), German 4/5 (80 %), English 5/5.
+- The miss: "Kannst du schätzen, wie alt ich bin?" got no tool, so the model answered in text. It never called `guess_age` for a question about the robot's own age.
+- Median response 9.2 s; the first case paid 45 s for a cold prompt.
+- This meets the 90 % profile target, but German is below it. Run the full eval before an event with the game on; a prompt tweak for German may be needed.

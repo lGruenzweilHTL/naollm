@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional
 
 from naollm.audio.stt import SpeechToText, check_voice_extra
 from naollm.audio.vad import End, SpeechTest, UtteranceDetector, VoiceUnavailable, webrtc_speech_test
+from naollm.audio.wake_laptop import LaptopWake, OpenWakeWordModel, WakeModel, WakeUnavailable
 from naollm.robot.adapter import EventKind, RobotEvent
 from naollm.state import State
 
@@ -40,8 +41,12 @@ class _Capture:
 
 class Listener:
     def __init__(self, bridge: "Bridge", conversation: Optional["ConversationLoop"] = None,
-                 stt: Optional[SpeechToText] = None, speech_test: Optional[SpeechTest] = None) -> None:
+                 stt: Optional[SpeechToText] = None, speech_test: Optional[SpeechTest] = None,
+                 wake_model_loader: Optional[Callable[[str], WakeModel]] = None) -> None:
         self.bridge = bridge
+        self.engine = bridge.config.audio.wake_engine
+        self.wake_model_loader = wake_model_loader or OpenWakeWordModel
+        self.laptop: Optional[LaptopWake] = None  # the laptop detector, once its model has loaded
         self.conversation = conversation
         self.stt = stt
         self.speech_test = speech_test
@@ -84,11 +89,17 @@ class Listener:
             return
         self.available = True
         self.ears_enabled = True
+        if self.engine == "laptop":
+            self.bridge.log.log("alert", "WAKE ENGINE LAPTOP: the robot's microphone streams audio to this laptop "
+                                         "all the time while idle (kept 2 s in memory, never stored). "
+                                         "The signage must say so")
         await asyncio.to_thread(self._set_up_wake)
         await asyncio.to_thread(self._apply_wake)
 
     def _set_up_wake(self) -> bool:
         cfg = self.bridge.config.audio
+        if self.engine == "laptop":
+            return self._set_up_laptop()
         try:
             self.bridge.robot.audio.configure_wake_words(cfg.wake_words, cfg.wake_threshold, cfg.wake_language)
         except Exception as err:
@@ -97,6 +108,35 @@ class Listener:
             return False
         self._wake_ready = True
         return True
+
+    def _set_up_laptop(self) -> bool:
+        """Loads the model once. No fallback to the robot engine: the signage matches the chosen engine."""
+        cfg = self.bridge.config.audio
+        if self.laptop is not None:
+            self._wake_ready = True
+            return True
+        try:
+            model = self.wake_model_loader(str(cfg.wake_model))
+        except WakeUnavailable as err:
+            self._wake_ready = False
+            self.bridge.log.log("alert", f"laptop wake word unavailable: {err}. Head tap and key still work; "
+                                         "the robot engine is not used instead")
+            return False
+        self.laptop = LaptopWake(model, cfg.laptop_wake_threshold, self._on_laptop_hit)
+        self._wake_ready = True
+        return True
+
+    def _on_laptop_hit(self, score: float) -> None:
+        """On a qi thread. Same flow as the robot's wake word."""
+        if self._testing:
+            return
+        self.bridge.log.log("sensor", f"laptop wake word {score:.2f}")
+        self.trigger("wake_word")
+
+    def _on_detect_chunk(self, chunk: bytes) -> None:
+        laptop = self.laptop
+        if laptop is not None:
+            laptop.feed(chunk)
 
     # -- triggers --------------------------------------------------------
     def trigger(self, source: str) -> None:
@@ -248,14 +288,34 @@ class Listener:
             if wanted == self._wake_on:
                 return
             try:
-                self.bridge.robot.audio.set_wake_enabled(wanted)
+                if self.engine == "laptop":
+                    self._switch_laptop(wanted)
+                else:
+                    self.bridge.robot.audio.set_wake_enabled(wanted)
                 self._wake_on = wanted
             except Exception as err:
                 self.bridge.log.log("warning", f"wake word switch failed: {err!r}")
 
+    def _switch_laptop(self, wanted: bool) -> None:
+        """The detection stream runs only while detection is active; a trigger opens its own stream."""
+        assert self.laptop is not None
+        audio = self.bridge.robot.audio
+        if wanted:
+            self.laptop.start()
+            try:
+                audio.start_stream(self._on_detect_chunk)
+            except Exception:
+                self.laptop.stop()
+                raise
+        else:
+            self.laptop.stop()
+            audio.stop_stream()
+
     def _on_state(self, old: State, new: State) -> None:
         if new == State.OFFLINE:
             self._wake_on = False  # the session is gone, and the engine with it
+            if self.laptop is not None:
+                self.laptop.stop()
             self.bridge.cancel_timer(WAKE_TIMER)
         elif self._wake_ready:
             self.bridge.schedule(WAKE_TIMER, self.wake_resume_s if new == State.IDLE else 0.0, self._apply_wake)
@@ -300,6 +360,9 @@ class Listener:
         self._testing = True
         try:
             await asyncio.to_thread(self._apply_wake)
+            if self.engine == "laptop":
+                await self._laptop_test(out, seconds)
+                return
             out(f"ears test: say the wake phrase; showing every phrase for {seconds:g} s "
                 f"(threshold {b.config.audio.wake_threshold:g})")
             try:
@@ -311,7 +374,41 @@ class Listener:
             self._testing = False
             self._test_end = None
             self._test_out = None
+            if self.laptop is not None:
+                self.laptop.on_score = None
             await asyncio.to_thread(self._apply_wake)
+
+    async def _laptop_test(self, out: Callable[[str], None], seconds: float, tick_s: float = 1.0) -> None:
+        """The live model score once per second (the peak of that second), and the highest overall."""
+        assert self.laptop is not None and self._test_end is not None
+        threshold = self.bridge.config.audio.laptop_wake_threshold
+        window: List[float] = []
+        lock = threading.Lock()
+
+        def on_score(score: float) -> None:  # on a qi thread
+            with lock:
+                window.append(score)
+
+        self.laptop.on_score = on_score
+        out(f"ears test (laptop engine): say the wake phrase; score once per second for {seconds:g} s "
+            f"(threshold {threshold:g})")
+        best = 0.0
+        elapsed = 0.0
+        while elapsed < seconds:
+            try:
+                await asyncio.wait_for(self._test_end.wait(), tick_s)
+                out(f"ears test ended early: state {self.bridge.state.state.value}")
+                break
+            except asyncio.TimeoutError:
+                pass
+            elapsed += tick_s
+            with lock:
+                peak = max(window, default=0.0)
+                window.clear()
+            best = max(best, peak)
+            mark = "  <- above threshold" if peak >= threshold else ""
+            out(f"  {elapsed:4.0f} s  {peak:.2f}{mark}")
+        out(f"ears test finished: highest score {best:.2f} (threshold {threshold:g})")
 
     def _on_event(self, event: RobotEvent) -> None:
         if event.kind == EventKind.WAKE_CANDIDATE and self._testing and self._test_out is not None:
@@ -328,3 +425,5 @@ class Listener:
     def _on_shutdown(self) -> None:
         self._wake_ready = False
         self.bridge.cancel_timer(WAKE_TIMER)
+        if self.laptop is not None:
+            self.laptop.stop()

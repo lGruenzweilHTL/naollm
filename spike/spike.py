@@ -336,6 +336,57 @@ def faces(session, seconds):
                           f"tracking enabled: {detection.isTrackingEnabled()}; shapes: {shapes or 'nobody seen'}")
 
 
+# --- age probe (add-age-game, task 1.2) ------------------------------------------
+EMOTION_PARTS = ("Expression", "Smile")
+
+
+@check("age")
+def age_probe(session, seconds):
+    """Legal gate for the age game. Needs a consenting club member alone in front of the camera.
+
+    Runs one analyzeFaceCharacteristics and lists which keys it writes under
+    PeoplePerception/Person/<id>/. It prints key names only, never a value, and
+    stores nothing.
+    """
+    try:
+        characteristics = session.service("ALFaceCharacteristics")
+    except Exception as err:
+        record("age", False, f"ALFaceCharacteristics is not available: {err}")
+        return
+    if not ask("A consenting club member stands alone in front of the robot, and the consent form is signed?"):
+        record("age", None, "consent not confirmed; no analysis ran")
+        return
+    people = session.service("ALPeoplePerception")
+    memory = session.service("ALMemory")
+    people.subscribe("NaollmSpikeAge")
+    try:
+        end = time.time() + seconds
+        visible = []
+        while time.time() < end and len(visible) != 1:
+            visible = memory.getData("PeoplePerception/VisiblePeopleList") or []
+            time.sleep(0.2)
+        if len(visible) != 1:
+            record("age", False, f"need exactly one visible person, saw {len(visible)}")
+            return
+        person = visible[0]
+        prefix = f"PeoplePerception/Person/{person}/"
+        before = set(memory.getDataList(prefix))
+        ok = characteristics.analyzeFaceCharacteristics(person)
+        after = set(memory.getDataList(prefix))
+    finally:
+        people.unsubscribe("NaollmSpikeAge")
+    keys = sorted(k[len(prefix):] for k in after)
+    new = sorted(k[len(prefix):] for k in after - before)
+    emotion = [k for k in keys if any(part in k for part in EMOTION_PARTS)]
+    print(f"analyzeFaceCharacteristics returned {ok}")
+    print(f"keys after the call: {keys}")
+    print(f"keys the call added: {new}")
+    if emotion:
+        print("LEGAL BLOCKER: the call writes expression or smile values. Stop the age game here and ask the "
+              "school's data-protection contact for written clearance (add-age-game design, 'Emotion side effects').")
+    record("age", bool(ok), f"keys written: {new or keys}; expression/smile keys: {emotion or 'none'}")
+
+
 # --- extras -------------------------------------------------------------------
 @check("extras")
 def extras(session, seconds):
@@ -379,6 +430,8 @@ def main():
     p.add_argument("--wake-language", default="German", help="ASR language for the wake word check (SPEC §11.1: German)")
     p.add_argument("--wake-words", nargs="+", default=["Hallo NAO", "Hey NAO"], help="phrases to spot")
     p.add_argument("--faces", type=float, metavar="SECONDS", help="also run the read-only face and people probe")
+    p.add_argument("--age", type=float, metavar="SECONDS",
+                   help="also run the age-game probe: one analyzeFaceCharacteristics, key names only (asks for consent)")
     p.add_argument("--skip", nargs="*", default=[], help="checks to skip")
     p.add_argument("--no-motion", action="store_true",
                    help="never command the motors: stop unless the robot is at rest, list behaviors without "
@@ -401,6 +454,8 @@ def main():
         ]
         if args.faces:
             steps.append(("faces", lambda: faces(session, args.faces)))
+        if args.age:
+            steps.append(("age", lambda: age_probe(session, args.age)))
         for name, fn in steps:
             if name in args.skip:
                 record(name, None, "skipped (--skip)")

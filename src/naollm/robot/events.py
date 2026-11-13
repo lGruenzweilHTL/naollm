@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from naollm.bridge import Bridge
 
 BATTERY_CRITICAL_PCT = 10
+# Touches that run the emergency stop (SPEC §10.3).
+ESTOP_TOUCHES = frozenset({EventKind.MIDDLE_HEAD, EventKind.REAR_HEAD})
 
 
 class EventWatcher:
@@ -31,7 +33,7 @@ class EventWatcher:
     def _handle(self, event: RobotEvent) -> None:
         b = self.bridge
         kind = event.kind
-        if kind in (EventKind.MIDDLE_HEAD, EventKind.REAR_HEAD):
+        if kind in ESTOP_TOUCHES:
             b.log.log("sensor", f"{kind.value} touched")
             b.estop("touch")
         elif kind == EventKind.FRONT_HEAD:
@@ -42,6 +44,7 @@ class EventWatcher:
             b.state.force(State.FALLEN)
             b.cancel_turn()
             if b.motors_enabled:
+                self._guard(lambda: b.set_tracking(False))
                 self._guard(b.robot.motion.stop_all_behaviors)
                 self._guard(b.robot.motion.stop_move)
             b.log.log("alert", "ROBOT FALLEN: place it upright, then type 'resume'")
@@ -75,6 +78,7 @@ class EventWatcher:
         motion = b.robot.motion
         if b.motors_enabled:
             b.log.log("alert", f"battery {pct} %: sitting down and resting")
+            self._guard(lambda: b.set_tracking(False))
             self._guard(motion.stop_all_behaviors)
             self._guard(motion.stop_move)
             self._guard(lambda: motion.go_to_posture("Sit"))
@@ -94,6 +98,7 @@ class EventWatcher:
             motion = b.robot.motion
             if b.motors_enabled:
                 b.log.log("alert", "joints hot: crouching and resting")
+                self._guard(lambda: b.set_tracking(False))
                 self._guard(motion.stop_all_behaviors)
                 self._guard(motion.stop_move)
                 self._guard(lambda: motion.go_to_posture("Crouch"))
