@@ -2,6 +2,8 @@
 
 What the operator does before, during and after the showcase. Commands assume the repository root, the project venv (`. .venv/bin/activate`) and `config.yaml`.
 
+For a tick list of the day before and the day of the event, see `docs/event-checklist.md`.
+
 Open questions that change this plan (SPEC §17): how long the showcase runs (question 7) sets the battery and break plan, and who collects the consent forms (question 6) sets the after-event step for paper.
 
 ## The day before
