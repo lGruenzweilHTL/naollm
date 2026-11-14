@@ -27,6 +27,38 @@ def public_example_dns(monkeypatch):
 
 FAST = 0.01  # fake robot time scale: a 6 s behavior takes 60 ms
 
+# A valid arms-only animation for tests, so they never depend on the real files in animations/
+# or on their review status.
+TEST_ANIMATION = """\
+name: {name}
+description: Test animation, both arms up, a short pump, back to Stand.
+version: 1
+author: test
+reviewed_by: "{reviewed_by}"
+posture: Stand
+duration_s: 3.0
+uses_legs: false
+interpolation: bezier
+tracks:
+  LShoulderPitch: {{times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [85, -70, -85, -70, 85]}}
+  RShoulderPitch: {{times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [85, -70, -85, -70, 85]}}
+  LElbowRoll:     {{times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [-25, -40, -70, -40, -25]}}
+  RElbowRoll:     {{times: [0.3, 1.1, 1.6, 2.1, 2.9], angles_deg: [25, 40, 70, 40, 25]}}
+  HeadPitch:      {{times: [0.3, 1.1, 2.1, 2.9],      angles_deg: [0, -15, -15, 0]}}
+"""
+
+
+def animation_text(name: str = "cheer", reviewed_by: str = "") -> str:
+    return TEST_ANIMATION.format(name=name, reviewed_by=reviewed_by)
+
+
+def write_animation(directory, name: str = "cheer", reviewed_by: str = ""):
+    """Writes the test animation as `<directory>/<name>.anim.yaml` and returns the path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.anim.yaml"
+    path.write_text(animation_text(name, reviewed_by))
+    return path
+
 
 def make_config(**overrides) -> Config:
     data = {

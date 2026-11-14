@@ -2,11 +2,10 @@
 
 import datetime
 import json
-from pathlib import Path
 
 import pytest
 
-from conftest import make_config
+from conftest import make_config, write_animation
 from naollm.admin.consent import ConsentRecord, ConsentRegistry
 from naollm.deploy.cleanup import Cleanup
 from naollm.deploy.preflight import FAIL, PASS, SKIP, WARN, Preflight, profiles_in_use
@@ -15,7 +14,6 @@ from naollm.llm.residency import ModelResidencyError, ModelStatus
 from naollm.main import main
 from naollm.robot.fake_adapter import FakeRobot
 
-ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime.datetime(2026, 11, 20, 12, 0, tzinfo=datetime.timezone.utc)
 
 
@@ -203,11 +201,10 @@ def test_missing_language(tmp_path):
 
 def test_unreviewed_animation_warns(tmp_path):
     write_result(tmp_path)
-    (tmp_path / "anims").mkdir()
-    (tmp_path / "anims" / "victory.anim.yaml").write_text((ROOT / "animations" / "victory.anim.yaml").read_text())
-    p, code = preflight(tmp_path, event_config(tmp_path, gestures={"victory": "anim:victory"}))
+    write_animation(tmp_path / "anims")
+    p, code = preflight(tmp_path, event_config(tmp_path, gestures={"cheer": "anim:cheer"}))
     check = status(p, "animations")
-    assert check.status == WARN and "victory" in check.detail and "dropped" in check.detail
+    assert check.status == WARN and "cheer" in check.detail and "dropped" in check.detail
     assert code == 0
 
 

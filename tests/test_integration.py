@@ -29,7 +29,7 @@ def test_scripted_dry_run_session(tmp_path):
         cfg.write_text(
             "robot: {url: 'tcp://10.0.0.2:9559'}\n"
             f"llm: {{base_url: '{server.base_url}', timeout_s: 5}}\n"
-            f"animations_dir: '{ROOT / 'animations'}'\n"
+            f"animations_dir: '{tmp_path / 'anims'}'\n"
             "dances: {macarena: showcase/dance_macarena}\n"
             "event_mode: false\n"
         )

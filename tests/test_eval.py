@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 
 from llm_stub import ScriptedClient, call
+from conftest import write_animation
 from naollm.eval import Progress, evaluate, load_cases, print_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -587,10 +588,9 @@ def test_result_path_is_safe():
 
 def test_keyframe_animations_are_offered_like_in_a_real_run(tmp_path):
     """`anim:` dances and gestures reach the tool enums, so the eval sees what the robot offers."""
-    # An arms-only stand-in for macarena, so the test does not depend on its review status.
-    victory = (ROOT / "animations" / "victory.anim.yaml").read_text()
-    (tmp_path / "victory.anim.yaml").write_text(victory)
-    (tmp_path / "macarena.anim.yaml").write_text(victory.replace("name: victory", "name: macarena"))
+    # Arms-only test animations under the names the config uses.
+    write_animation(tmp_path, "victory")
+    write_animation(tmp_path, "macarena")
     base = dict(BASE, event_mode=False, animations_dir=str(tmp_path))
     cases_seen = {}
 

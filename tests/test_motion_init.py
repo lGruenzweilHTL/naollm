@@ -1,10 +1,9 @@
 """Init steps and the animation preview with motors on (robot-init, package-deploy, keyframe-animations)."""
 
-from pathlib import Path
 
 import pytest
 
-from conftest import make_config
+from conftest import make_config, write_animation
 from naollm.animations.preview import preview, slowed
 from naollm.animations.model import load_animation
 from naollm.deploy.init import FAIL, PASS, SKIP, Init
@@ -15,7 +14,6 @@ from naollm.robot.fake_adapter import FakeRobot
 from naollm.robot.qi_adapter import QiRobot
 from qi_double import QiDouble
 
-ROOT = Path(__file__).resolve().parents[1]
 URL = "tcp://10.0.0.135:9559"
 BASE = dict(robot={"url": URL, "language": "English", "battery_reliable": True},
             stt={"languages": ["en"], "fallback_language": "en"},
@@ -23,9 +21,10 @@ BASE = dict(robot={"url": URL, "language": "English", "battery_reliable": True},
 
 
 def config(tmp_path, motors=True, **extra):
+    write_animation(tmp_path / "anims")
     return make_config(**{**BASE, "motion": {"motors_enabled": motors},
                           "robot_profile_dir": str(tmp_path / "robots"),
-                          "animations_dir": str(ROOT / "animations"), **extra})
+                          "animations_dir": str(tmp_path / "anims"), **extra})
 
 
 def make_init(cfg, robot, answers=(), **kwargs):
@@ -195,7 +194,7 @@ def test_motors_off_selftest_has_no_motion_check(tmp_path):
 def run_preview(cfg, answer="y", speed=0.5, robot=None):
     robot = robot or FakeRobot(time_scale=0)
     lines = []
-    code = preview(cfg, "victory", speed, robot, lines.append, lambda q: answer)
+    code = preview(cfg, "cheer", speed, robot, lines.append, lambda q: answer)
     return code, robot, lines
 
 
@@ -203,14 +202,14 @@ def test_slow_preview_doubles_every_time(tmp_path):
     code, robot, lines = run_preview(config(tmp_path))
     assert code == 0, lines
     played = [a for a in robot.actions if a.name == "play_keyframes"]
-    assert played and played[0].args["duration_s"] == 6.0
+    assert played and played[0].args["duration_s"] == 6.0  # the 3 s test animation at half speed
     assert any("not reviewed yet" in line for line in lines)  # accepted without reviewed_by
     assert any("TOOL" in line and "play_gesture ok" in line for line in lines)  # through the gate
     assert robot.action_names()[-1] == "disconnect"
 
 
-def test_slowed_scales_times():
-    anim = load_animation(ROOT / "animations" / "victory.anim.yaml")
+def test_slowed_scales_times(tmp_path):
+    anim = load_animation(write_animation(tmp_path))
     slow = slowed(anim, 0.5)
     assert slow.tracks["HeadPitch"].times == [t * 2 for t in anim.tracks["HeadPitch"].times]
     assert slow.duration_s == anim.duration_s * 2
@@ -223,7 +222,7 @@ def test_factor_out_of_range(tmp_path, speed):
 
 
 def test_factor_out_of_range_on_the_command_line(capsys):
-    assert main(["anim", "preview", "victory", "--speed", "1.5", "--dry-run"]) != 0
+    assert main(["anim", "preview", "cheer", "--speed", "1.5", "--dry-run"]) != 0
     assert "at most 1" in capsys.readouterr().err
 
 

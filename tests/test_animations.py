@@ -1,8 +1,8 @@
-from pathlib import Path
 
 import pytest
+import yaml
 
-from conftest import make_config
+from conftest import animation_text, make_config, write_animation
 from naollm.animations.import_choregraphe import ChoregrapheImportError, convert, import_file
 from naollm.animations.library import load_library, playable
 from naollm.animations.limits import builtin_limits, load_limits
@@ -11,7 +11,6 @@ from naollm.animations.validate import validate
 from naollm.main import main
 from naollm.state import State
 
-ROOT = Path(__file__).resolve().parents[1]
 
 SPEC_EXAMPLE = """\
 name: victory
@@ -122,8 +121,8 @@ def test_unknown_joint_and_shape():
     assert ("joint", "Tail") in rules(v) and ("shape", "HeadYaw") in rules(v)
 
 
-def test_valid_arm_animation():
-    a = load_animation(ROOT / "animations" / "victory.anim.yaml")
+def test_valid_arm_animation(tmp_path):
+    a = load_animation(write_animation(tmp_path))
     assert validate(a, builtin_limits()) == []
 
 
@@ -196,16 +195,17 @@ def test_leg_joints_set_uses_legs():
 # -- CLI ---------------------------------------------------------------------
 
 def test_validate_exit_code(tmp_path, capsys):
-    good = (ROOT / "animations" / "victory.anim.yaml").read_text()
-    write(tmp_path, "victory", good)
-    write(tmp_path, "victory2", good.replace("name: victory", "name: victory2"))
-    write(tmp_path, "broken", good.replace("name: victory", "name: broken").replace("[0, -15, -15, 0]",
-                                                                                     "[0, -45, -15, 0]"))
+    write_animation(tmp_path, "cheer")
+    write_animation(tmp_path, "cheer2")
+    broken = yaml.safe_load(animation_text())
+    broken["name"] = "broken"
+    broken["tracks"]["HeadPitch"]["angles_deg"][1] = -45  # beyond the -38.5 degree limit
+    write(tmp_path, "broken", yaml.safe_dump(broken))
     code = main(["anim", "validate", "--all", "--dir", str(tmp_path)])
     out = capsys.readouterr().out
     assert code == 1
     assert "broken" in out and "HeadPitch" in out
-    assert "victory:" not in out and "2 valid, 1 invalid" in out
+    assert "cheer:" not in out and "2 valid, 1 invalid" in out
     assert "built-in NAO 6" in out
 
 
@@ -218,40 +218,42 @@ def test_anim_list_and_import(tmp_path, capsys):
     assert "NOT reviewed" in capsys.readouterr().out
 
 
-def test_sample_validates():
-    assert main(["anim", "validate", "victory", "--dir", str(ROOT / "animations")]) == 0
+def test_single_animation_validates(tmp_path):
+    write_animation(tmp_path)
+    assert main(["anim", "validate", "cheer", "--dir", str(tmp_path)]) == 0
 
 
 # -- library filtering and playback -----------------------------------------------
 
 def reviewed_copy(tmp_path):
-    text = (ROOT / "animations" / "victory.anim.yaml").read_text().replace('reviewed_by: ""', "reviewed_by: lukas")
-    write(tmp_path, "victory", text)
+    write_animation(tmp_path, reviewed_by="lukas")
     return tmp_path
 
 
-def test_unreviewed_dropped_in_event_mode():
-    entries = load_library(ROOT / "animations")
+def test_unreviewed_dropped_in_event_mode(tmp_path):
+    write_animation(tmp_path)
+    entries = load_library(tmp_path)
     ok, problems = playable(entries, event_mode=True)
-    assert "victory" not in ok and "not reviewed" in problems["victory"]
+    assert "cheer" not in ok and "not reviewed" in problems["cheer"]
     ok, _ = playable(entries, event_mode=False)
-    assert "victory" in ok
+    assert "cheer" in ok
 
 
-def test_unreviewed_warning_names_animation(make_bridge):
+def test_unreviewed_warning_names_animation(make_bridge, tmp_path):
+    write_animation(tmp_path)
     cfg = make_config(event_mode=True, gestures={"wave": "animations/Stand/Gestures/Hey_1",
-                                                 "victory": "anim:victory"})
-    ok, problems = playable(load_library(ROOT / "animations"), event_mode=True)
+                                                 "cheer": "anim:cheer"})
+    ok, problems = playable(load_library(tmp_path), event_mode=True)
     b = make_bridge(cfg, keyframes=ok, problems=problems)
-    assert "victory" not in b.registry.catalogue.gestures
-    assert any("victory" in e.message and "not reviewed" in e.message for e in b.log.entries("warning"))
+    assert "cheer" not in b.registry.catalogue.gestures
+    assert any("cheer" in e.message and "not reviewed" in e.message for e in b.log.entries("warning"))
 
 
 def test_upper_body_playback(make_bridge, robot, tmp_path):
     ok, _ = playable(load_library(reviewed_copy(tmp_path)), event_mode=True)
-    cfg = make_config(gestures={"victory": "anim:victory"})
+    cfg = make_config(gestures={"cheer": "anim:cheer"})
     b = make_bridge(cfg, keyframes=ok)
-    assert b.gate.check_and_run("play_gesture", {"name": "victory"}).ok
+    assert b.gate.check_and_run("play_gesture", {"name": "cheer"}).ok
     names = [a.name for a in robot.actions if a.name in ("set_balancer", "play_keyframes")]
     assert names == ["set_balancer", "play_keyframes", "set_balancer"]
     assert robot.balancer is False
@@ -262,10 +264,10 @@ def test_interrupted_playback(make_bridge, robot, tmp_path):
     import time
 
     ok, _ = playable(load_library(reviewed_copy(tmp_path)), event_mode=True)
-    b = make_bridge(make_config(gestures={"victory": "anim:victory"}), keyframes=ok)
+    b = make_bridge(make_config(gestures={"cheer": "anim:cheer"}), keyframes=ok)
     robot.time_scale = 1.0
     out = {}
-    t = threading.Thread(target=lambda: out.setdefault("r", b.gate.check_and_run("play_gesture", {"name": "victory"})))
+    t = threading.Thread(target=lambda: out.setdefault("r", b.gate.check_and_run("play_gesture", {"name": "cheer"})))
     t.start()
     while "play_keyframes" not in robot.action_names():
         time.sleep(0.005)

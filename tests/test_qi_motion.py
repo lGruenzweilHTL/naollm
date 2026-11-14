@@ -10,12 +10,13 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 import naollm.robot.qi_adapter as qa
-from conftest import make_config
+from conftest import animation_text, make_config
 from llm_stub import ScriptedClient, call
 from naollm.admin.commands import Commands
-from naollm.animations.model import load_animation
+from naollm.animations.model import Animation
 from naollm.bridge import Bridge, StartupRefused
 from naollm.llm.loop import ConversationLoop
 from naollm.main import run_app
@@ -26,14 +27,14 @@ from qi_double import DENIED, Future, QiDouble
 
 ROOT = Path(__file__).resolve().parents[1]
 URL = "tcp://10.0.0.135:9559"
-VICTORY = load_animation(ROOT / "animations" / "victory.anim.yaml")
+CHEER = Animation.model_validate(yaml.safe_load(animation_text()))
 CONFIG = dict(
     robot={"url": URL, "language": "English", "battery_reliable": True},
     stt={"languages": ["en"], "fallback_language": "en"},
     audio={"wake_language": "English", "wake_words": ["Hey NAO"], "wake_threshold": 0.4},
     motion={"motors_enabled": True},
     dances={"macarena": "showcase/dance_macarena", "robot": "showcase/dance_robot"},
-    gestures={"wave": "animations/Stand/Gestures/Hey_1", "victory": "anim:victory"},
+    gestures={"wave": "animations/Stand/Gestures/Hey_1", "cheer": "anim:cheer"},
 )
 
 
@@ -46,7 +47,7 @@ def motors_double():
 def make_bridge(double, **overrides):
     robot = QiRobot(qi_module=double, motors_enabled=True)
     config = make_config(**{**CONFIG, **overrides})
-    bridge = Bridge(config, robot, keyframe_loader=lambda: ({"victory": VICTORY}, {}))
+    bridge = Bridge(config, robot, keyframe_loader=lambda: ({"cheer": CHEER}, {}))
     bridge.look_hold_s = 0.05
     return bridge
 
@@ -205,12 +206,12 @@ def test_gesture_dance_and_steps(bridge, double):
 
 
 def test_keyframes_use_the_balancer(bridge, double):
-    assert bridge.gate.check_and_run("play_gesture", {"name": "victory"}).ok
+    assert bridge.gate.check_and_run("play_gesture", {"name": "cheer"}).ok
     names = [m for s, m, _ in double.motor_calls() if s == "ALMotion"]
     assert names == ["wbEnable", "wbFootState", "wbEnableBalanceConstraint", "angleInterpolationBezier", "wbEnable"]
     assert double.called("ALMotion", "wbEnable") == [(True,), (False,)]
     joints, times, angles = double.called("ALMotion", "angleInterpolationBezier")[0]
-    assert joints == list(VICTORY.tracks)
+    assert joints == list(CHEER.tracks)
 
 
 def test_linear_keyframes_use_angle_interpolation(double):
@@ -266,12 +267,12 @@ def test_estop_during_a_dance(bridge, double):
 
 def test_estop_during_keyframes(bridge, double):
     double.hold[("ALMotion", "angleInterpolationBezier")] = Future(finished=False)
-    thread, box = in_thread(bridge.gate.check_and_run, "play_gesture", {"name": "victory"})
+    thread, box = in_thread(bridge.gate.check_and_run, "play_gesture", {"name": "cheer"})
     until(lambda: double.called("ALMotion", "angleInterpolationBezier"))
     bridge.estop("hotkey")
     thread.join(2)
     assert box["result"].result == "interrupted"
-    assert double.called("ALMotion", "killTasksUsingResources") == [(list(VICTORY.tracks),)]
+    assert double.called("ALMotion", "killTasksUsingResources") == [(list(CHEER.tracks),)]
     assert (False,) in double.called("ALMotion", "wbEnable")
     assert double.called("ALRobotPosture", "goToPosture")[-1][0] == "Crouch"
     assert bridge.state.state == State.STOPPED
@@ -381,7 +382,7 @@ def test_full_lifecycle_with_motors_on_keeps_the_protections():
         b.startup(greet=True)
         await commands.execute("chat dance please")
         for line in ("posture Sit", "posture Stand", "walk on", "tool turn 10", "tool step forward 10",
-                     "tool look left", "tool play_gesture wave", "tool play_gesture victory", "tool stop",
+                     "tool look left", "tool play_gesture wave", "tool play_gesture cheer", "tool stop",
                      "tool set_eyes cyan", "tool get_status", "status", "behaviors", "rest", "wake"):
             await commands.execute(line)
         double.fire("MiddleTactilTouched", 1.0)

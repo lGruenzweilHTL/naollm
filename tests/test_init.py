@@ -3,12 +3,11 @@
 import argparse
 import os
 import threading
-from pathlib import Path
 
 import pytest
 import yaml
 
-from conftest import make_config
+from conftest import make_config, write_animation
 from naollm.animations.limits import load_limits
 from naollm.deploy.init import FAIL, PASS, SKIP, Init, profile_data, robot_url, run_init_cli, write_atomic
 from naollm.deploy.selftest import SelfTest
@@ -18,7 +17,6 @@ from naollm.robot.fake_adapter import FakeRobot
 from naollm.robot.qi_adapter import QiRobot
 from qi_double import QiDouble
 
-ROOT = Path(__file__).resolve().parents[1]
 URL = "tcp://10.0.0.135:9561"
 EN = dict(robot={"url": URL, "language": "English", "battery_reliable": False},
           stt={"languages": ["en"], "fallback_language": "en"},
@@ -204,9 +202,7 @@ def test_rerun_is_safe(tmp_path, real, double):
 
 def test_invalid_animation_is_reported_and_never_played(tmp_path, double, real):
     directory = tmp_path / "animations"
-    directory.mkdir()
-    (directory / "wild.anim.yaml").write_text((ROOT / "animations" / "victory.anim.yaml").read_text())
-    data = yaml.safe_load((directory / "wild.anim.yaml").read_text())
+    data = yaml.safe_load(write_animation(directory, "wild").read_text())
     joint = next(iter(data["tracks"]))
     data["tracks"][joint]["angles_deg"] = [500.0 for _ in data["tracks"][joint]["angles_deg"]]
     (directory / "wild.anim.yaml").write_text(yaml.safe_dump(data))
@@ -217,9 +213,10 @@ def test_invalid_animation_is_reported_and_never_played(tmp_path, double, real):
     assert double.violations == []
 
 
-def test_repository_animations_pass_with_builtin_limits(tmp_path):
+def test_valid_animations_pass_with_builtin_limits(tmp_path):
     robot = FakeRobot(time_scale=0.0)
-    cfg = config(tmp_path, animations_dir=str(ROOT / "animations"))
+    write_animation(tmp_path / "animations")
+    cfg = config(tmp_path)
     init = make_init(cfg, robot, dry_run=True, skip_selftest=True)
     assert init.run() == 0, init.lines
 
