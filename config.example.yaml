@@ -62,7 +62,7 @@ dances:
   macarena: anim:macarena                # keyframe file animations/macarena.anim.yaml, arms only
   gangnam: showcase/dance_gangnam         # Choregraphe package choregraphe/showcase, whole body, no music
   disco: showcase/dance_disco             # Choregraphe package choregraphe/showcase, whole body, no music
-  robot: animations/Stand/Waiting/Robot_1 # built into NAOqi
+  robot: anim:robot                      # keyframe file animations/robot.anim.yaml, arms and head only
 gestures:
   wave: animations/Stand/Gestures/Hey_1
   bow: animations/Stand/Gestures/BowShort_1
