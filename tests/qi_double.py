@@ -20,14 +20,13 @@ ALLOWED: Dict[str, Set[str]] = {
     "ALTextToSpeech": {"say", "stopAll", "setLanguage", "getAvailableLanguages"},
     "ALLeds": {"fadeRGB"},
     "ALAudioDevice": {"setClientPreferences", "subscribe", "unsubscribe"},
-    "ALAudioPlayer": {"playSine"},
+    "ALAudioPlayer": {"playFile"},
     "ALSpeechRecognition": {"getAvailableLanguages", "pause", "setLanguage", "setVocabulary", "removeAllContext",
                             "setAudioExpression", "setVisualExpression", "subscribe", "unsubscribe"},
-    "ALMemory": {"subscriber", "getData"},
+    "ALMemory": {"subscriber", "getData", "getListData"},
     "ALBattery": {"getBatteryCharge"},
     "ALRobotPosture": {"getPosture", "getPostureFamily"},
     "ALBehaviorManager": {"getInstalledBehaviors"},
-    "ALBodyTemperature": {"getTemperatureDiagnosis"},
     "ALFaceDetection": {"setTrackingEnabled", "setRecognitionEnabled", "subscribe", "unsubscribe", "learnFace",
                         "forgetPerson", "clearDatabase", "getLearnedFacesList"},
     "ALPeoplePerception": {"subscribe", "unsubscribe"},
@@ -159,7 +158,18 @@ class Session:
     def registerService(self, name: str, obj: Any) -> int:  # noqa: N802
         self._next_service += 1
         self._double.registered[self._next_service] = (name, obj)
+        self._double.unlisted_polls[name] = self._double.listing_delay_polls
         return self._next_service
+
+    def services(self) -> List[Dict[str, Any]]:
+        """Like the robot: a new service shows up only after `listing_delay_polls` calls."""
+        listed = []
+        for name, _ in self._double.registered.values():
+            if self._double.unlisted_polls.get(name, 0) > 0:
+                self._double.unlisted_polls[name] -= 1
+            else:
+                listed.append({"name": name})
+        return listed
 
     def unregisterService(self, service_id: int) -> None:  # noqa: N802
         del self._double.registered[service_id]
@@ -217,6 +227,9 @@ class QiDouble:
         self.listens: List[str] = []
         self.applications: List[Application] = []
         self.registered: Dict[int, Tuple[str, Any]] = {}
+        self.listing_delay_polls = 0  # services() calls before a registered service is listed
+        self.unlisted_polls: Dict[str, int] = {}
+        self.temperature: Dict[str, int] = {}  # device -> temperature status; others read 0
         self.subscribers: Dict[str, Subscriber] = {}
         self.is_open = False
         self.lock = threading.Lock()
@@ -400,4 +413,7 @@ class QiDouble:
     def _ALRobotPosture_getPosture(self): return self.posture  # noqa: E704,N802
     def _ALRobotPosture_getPostureFamily(self): return self.posture_family  # noqa: E704,N802
     def _ALBehaviorManager_getInstalledBehaviors(self): return list(self.behaviors)  # noqa: E704,N802
-    def _ALBodyTemperature_getTemperatureDiagnosis(self): return None  # noqa: E704,N802
+
+    def _ALMemory_getListData(self, keys):  # noqa: N802
+        statuses = {f"Device/SubDeviceList/{d}/Temperature/Sensor/Status": v for d, v in self.temperature.items()}
+        return [statuses.get(key, 0) for key in keys]

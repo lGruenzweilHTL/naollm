@@ -17,6 +17,7 @@ from naollm.robot.adapter import (
     Speech,
     WakeHit,
 )
+from naollm.robot import qi_adapter
 from naollm.robot.qi_adapter import QiRobot, QiUnavailable, RobotConnectionError
 from qi_double import ForbiddenCall, QiDouble
 
@@ -328,9 +329,24 @@ def test_chunk_handler_error_is_logged(adapter, double, logs):
     assert any("boom" in m for k, m in logs)
 
 
+def test_stream_waits_until_the_robot_lists_the_client(adapter, double):
+    double.listing_delay_polls = 3
+    adapter.audio.start_stream(lambda c: None)
+    assert double.called("ALAudioDevice", "subscribe") == [("NaollmAudio",)]
+
+
+def test_stream_fails_when_the_client_is_never_listed(adapter, double, monkeypatch):
+    monkeypatch.setattr(qi_adapter, "SERVICE_LISTED_S", 0.0)
+    double.listing_delay_polls = 10**6
+    with pytest.raises(RuntimeError, match="does not list service NaollmAudio"):
+        adapter.audio.start_stream(lambda c: None)
+    assert double.called("ALAudioDevice", "setClientPreferences") == []
+    assert double.registered == {}
+
+
 def test_listen_sound(adapter, double):
     adapter.audio.play_listen_sound()
-    assert len(double.called("ALAudioPlayer", "playSine")) == 1
+    assert double.called("ALAudioPlayer", "playFile") == [(qi_adapter.LISTEN_SOUND, 0.4, 0.0)]
 
 
 # -- wake word -----------------------------------------------------------
@@ -425,7 +441,12 @@ def test_status_is_kept_briefly(adapter, double):
 
 
 def test_status_thermal_levels(adapter, double):
-    double.results[("ALBodyTemperature", "getTemperatureDiagnosis")] = [2, ["HeadYaw"]]
+    assert adapter.events.status().thermal == "ok"
+    adapter.events.invalidate()
+    double.temperature["LKneePitch"] = 1
+    assert adapter.events.status().thermal == "warm"
+    adapter.events.invalidate()
+    double.temperature["Battery"] = 2
     assert adapter.events.status().thermal == "hot"
 
 

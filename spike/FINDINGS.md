@@ -211,3 +211,11 @@ Checked on 2026-11-10 on the operator laptop, Ollama 0.40.14.
 - **Battery.** The user reports a working full battery. The reading moves: Konrad read 97 % at 1.1 A.
 - **Autonomous Life.** Konrad is in `solitary`.
 - **Behaviors.** Konrad has 901 installed behaviors: the standard `animations/Stand`, `Sit` and `SitOnPod` sets, system packages, and no `showcase` package. The configured `showcase/gesture_bow`, `showcase/dance_macarena` and `showcase/dance_robot` are missing until `naollm deploy`.
+
+### API changes found by the bridge (2026-11-14)
+
+Read-only probes on Konrad with the robot crouching and the motors off. The only output was one listening sound.
+
+- **`ALBodyTemperature` has no methods.** It lists only the module basics (`ping`, `version`, `getMethodList` and similar), so `getTemperatureDiagnosis` raises `AttributeError`. The adapter now reads `Device/SubDeviceList/<device>/Temperature/Sensor/Status` for the 26 joints and `Battery` with one `ALMemory.getListData` call and takes the highest value (0 ok, 1 hot, 2 very hot, 3 critical). All values read 0 at rest. A key the robot does not have reads `None`. The events `HotDeviceDetected` and `TemperatureStatusChanged` still exist.
+- **`ALAudioPlayer.playSine` is gone,** and `ALAudioDevice` has no `playSine` either. The listening sound is now NAOqi's own `/opt/aldebaran/share/naoqi/wav/begin_reco.wav` through `ALAudioPlayer.playFile(path, 0.4, 0.0)`. The call returns after the sound, in 0.22 s.
+- **A new service is not listed at once.** `session.registerService("NaollmAudio", ...)` returns before the robot's service directory lists the service. An `ALAudioDevice.setClientPreferences` call in that gap fails with `ALProxy::ALProxy Can't find service: NaollmAudio`. The service was listed 0.05 to 0.1 s later, and then the stream delivered about 30 000 bytes per second. The adapter now waits up to 2 s until `session.services()` lists the client.

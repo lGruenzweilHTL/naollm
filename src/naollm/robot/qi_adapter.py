@@ -38,6 +38,14 @@ from naollm.robot.adapter import (
 AUDIO_CLIENT = "NaollmAudio"
 ASR_CLIENT = "NaollmWake"
 AUDIO_RATE = 16000
+SERVICE_LISTED_S = 2.0  # registerService to the robot listing it took 0.05-0.1 s on Konrad
+# NAOqi's own "listening" sound. ALAudioPlayer.playSine is gone in NAOqi 2.8.7.8.
+LISTEN_SOUND = "/opt/aldebaran/share/naoqi/wav/begin_reco.wav"
+LISTEN_VOLUME = 0.4
+# ALBodyTemperature has no methods in NAOqi 2.8.7.8, so the thermal level comes from the
+# temperature status of each joint and the battery: 0 ok, 1 hot, 2 very hot, 3 critical.
+TEMPERATURE_KEYS = [f"Device/SubDeviceList/{device}/Temperature/Sensor/Status"
+                    for device in [*NAO6_LIMITS, "Battery"]]
 FRONT_MIC = 3
 FACE_LEDS = "FaceLeds"
 STATUS_TTL_S = 0.5
@@ -409,6 +417,18 @@ class _AudioClient:
             self._log("error", f"audio chunk handling failed: {err!r}")
 
 
+def _wait_until_listed(session: Any, name: str) -> None:
+    """`registerService` returns before the robot's service directory lists the service.
+
+    On NAOqi 2.8.7.8, ALAudioDevice asked in that gap fails with "Can't find service".
+    """
+    deadline = time.monotonic() + SERVICE_LISTED_S
+    while not any(entry["name"] == name for entry in session.services()):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"the robot does not list service {name} after {SERVICE_LISTED_S} s")
+        time.sleep(POLL_S)
+
+
 class QiAudio:
     def __init__(self, robot: "QiRobot") -> None:
         self._robot = robot
@@ -428,6 +448,7 @@ class QiAudio:
             self._client = _AudioClient(on_chunk, self._robot.log)
             self._client_id = session.registerService(AUDIO_CLIENT, self._client)
             try:
+                _wait_until_listed(session, AUDIO_CLIENT)
                 device.setClientPreferences(AUDIO_CLIENT, AUDIO_RATE, FRONT_MIC, 0)
                 device.subscribe(AUDIO_CLIENT)
                 self._subscribed = True
@@ -457,8 +478,8 @@ class QiAudio:
 
     # -- sound ----------------------------------------------------------
     def play_listen_sound(self) -> None:
-        # frequency Hz, gain %, pan, duration s. Needs no sound file on the robot.
-        self._robot.service("ALAudioPlayer").playSine(880, 40, 0, 0.12)
+        # path, volume 0-1, pan. Returns when the sound has played, so the stream does not pick it up.
+        self._robot.service("ALAudioPlayer").playFile(LISTEN_SOUND, LISTEN_VOLUME, 0.0)
 
     # -- wake word ------------------------------------------------------
     def wake_languages(self) -> List[str]:
@@ -648,9 +669,9 @@ class QiEvents:
             return default
 
     def _thermal(self) -> ThermalLevel:
-        # NAOqi 2.8.5.11 returns None when nothing is hot, otherwise [level, [devices]].
-        diagnosis = self._robot.service("ALBodyTemperature").getTemperatureDiagnosis()
-        level = int(diagnosis[0]) if diagnosis else 0
+        # A key the robot does not have reads as None.
+        statuses = self._robot.service("ALMemory").getListData(TEMPERATURE_KEYS)
+        level = max((int(status) for status in statuses if status is not None), default=0)
         return "hot" if level >= 2 else ("warm" if level == 1 else "ok")
 
 
