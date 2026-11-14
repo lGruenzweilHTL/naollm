@@ -876,6 +876,7 @@ Every animation must pass before it can be played:
 
 - Goes through the safety gate like every other motion (motion lock, posture precondition, battery, temperature).
 - Upper-body animations: enable whole-body balancer, fix both feet, play, return to start posture, disable balancer.
+- Leg animations (`uses_legs: true`) play with the balancer off for the whole animation, arm-only sections included. Considered and dropped on 2026-11-14: keeping the balancer on during arm-only sections. Only `macarena` has leg tracks, and v5 is stable without it. Revisit through an OpenSpec change to `keyframe-animations` if a leg animation falls during an arm section.
 - `estop()` interrupts playback, then runs the normal stop routine (exact interruption call verified in phase 2).
 
 ### 19.5 CLI
