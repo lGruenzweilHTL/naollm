@@ -11,7 +11,7 @@ The robot's battery is defective, so `add-qi-adapter` ships a real adapter that 
 - Run the full startup, shutdown, emergency stop, idle crouch, battery and thermal routines from SPEC §6.3, §6.4, §10.3 and §18.3 on the real robot.
 - Speak with `ALAnimatedSpeech` when motors are on, and add head tracking with `ALBasicAwareness`.
 - Offer motion tools to the LLM again and use the full system prompt, from the existing motors-on code path.
-- Add `naollm deploy`, which bumps the `manifest.xml` version, builds the package with `qipkg make-package` and installs it with `qipkg deploy-package`.
+- Add `naollm deploy`, which bumps the `manifest.xml` version, builds the package with `qipkg make-package` and installs it through the robot's `PackageManager` on the configured NAOqi port.
 - Add a `choregraphe/showcase/` project skeleton (package id `showcase`). The behaviors in it are authored by people in Choregraphe.
 - Extend `naollm init` with the motor steps when motors are on: SSH key install, package deploy, `--name`, and the Stand, Crouch and gesture checks in the self-test.
 - Add `naollm anim preview <name> [--speed 0.5]`, which plays a keyframe animation slowly after operator confirmation.

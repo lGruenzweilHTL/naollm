@@ -1,4 +1,4 @@
-"""`naollm deploy` with a stubbed qipkg (package-deploy spec)."""
+"""`naollm deploy` with stubbed qipkg, scp, ssh and PackageManager (package-deploy spec)."""
 
 import re
 import shutil
@@ -10,6 +10,7 @@ from conftest import make_config
 from naollm.deploy.package import (
     Deploy,
     DeployError,
+    QiPackageTarget,
     auto_start_behaviors,
     bump_patch,
     parse_manifest,
@@ -46,31 +47,63 @@ def project(tmp_path):
     return target
 
 
-class Qipkg:
-    """Records commands; `make-package` writes the package file unless told to fail."""
+SHOWCASE = ("showcase/dance_macarena", "showcase/dance_robot", "showcase/gesture_bow")
 
-    def __init__(self, build=0, install=0):
-        self.build, self.install = build, install
+
+class Qipkg:
+    """Records commands; `make-package` writes the package file unless told to fail.
+
+    Also stands in for `scp` and `ssh`, which return `copy` and `remove`.
+    """
+
+    def __init__(self, build=0, copy=0, remove=0):
+        self.build, self.copy, self.remove = build, copy, remove
         self.commands = []
 
     def __call__(self, cmd):
         self.commands.append(cmd)
+        if cmd[0] == "scp":
+            return self.copy
+        if cmd[0] == "ssh":
+            return self.remove
         if cmd[1] == "make-package":
             if self.build == 0:
                 Path(cmd[cmd.index("-o") + 1]).write_bytes(b"pkg")
             return self.build
-        return self.install
+        raise AssertionError(f"unexpected command {cmd}")
+
+    def names(self):
+        return [c[1] if c[0] == "qipkg" else c[0] for c in self.commands]
+
+
+class Target:
+    """PackageManager and ALBehaviorManager on a fake robot."""
+
+    def __init__(self, installed=SHOWCASE, result=True, error=None):
+        self.behaviors, self.result, self.error = list(installed), result, error
+        self.installs, self.closed = [], 0
+
+    def install(self, remote_path):
+        self.installs.append(remote_path)
+        if self.error:
+            raise self.error
+        return self.result
+
+    def installed(self):
+        return self.behaviors
+
+    def close(self):
+        self.closed += 1
 
 
 def motors_config(**extra):
     return make_config(motion={"motors_enabled": True}, **extra)
 
 
-def deploy(project, qipkg, installed=("showcase/dance_macarena", "showcase/dance_robot", "showcase/gesture_bow"),
-           config=None):
+def deploy(project, qipkg, target=None, config=None):
     lines = []
     d = Deploy(config or motors_config(), "10.0.0.2", lines.append, run=qipkg, qipkg="qipkg",
-               installed=lambda: list(installed), project_dir=project)
+               target=target or Target(), project_dir=project)
     return d, d.run(), lines
 
 
@@ -86,15 +119,107 @@ def test_repository_project_is_a_valid_skeleton():
 
 
 def test_successful_deploy_bumps_the_patch(project):
-    qipkg = Qipkg()
-    d, code, lines = deploy(project, qipkg)
+    qipkg, target = Qipkg(), Target()
+    d, code, lines = deploy(project, qipkg, target)
     assert code == 0, lines
     assert version(project) == "0.0.2"
-    make, install = qipkg.commands
+    make, copy, remove = qipkg.commands
     assert make[:3] == ["qipkg", "make-package", str(project / "showcase.pml")]
     assert make[-1].endswith("showcase-0.0.2.pkg")
-    assert install[1:2] == ["deploy-package"] and install[-2:] == ["--url", "nao@10.0.0.2"]
+    assert copy == ["scp", "-o", "BatchMode=yes", make[-1], "nao@10.0.0.2:"]
+    assert target.installs == ["/home/nao/showcase-0.0.2.pkg"]
+    assert remove == ["ssh", "-o", "BatchMode=yes", "nao@10.0.0.2", "rm", "-f", "showcase-0.0.2.pkg"]
+    assert target.closed == 1
     assert [line[0] for line in lines] == ["✓"] * 5
+
+
+def test_failed_copy_installs_nothing_and_undoes_the_bump(project):
+    qipkg, target = Qipkg(copy=1), Target()
+    _, code, lines = deploy(project, qipkg, target)
+    assert code != 0 and version(project) == "0.0.1"
+    assert qipkg.names() == ["make-package", "scp"] and target.installs == []
+    assert any(line.startswith("✗ install") and "scp" in line for line in lines)
+    assert not any(line.startswith("✓ verify") for line in lines)
+
+
+def test_refused_connection_fails_the_install_and_undoes_the_bump(project):
+    qipkg = Qipkg()
+    target = Target(error=RuntimeError("cannot connect to tcp://10.0.0.2:9561: Connect error: 111"))
+    _, code, lines = deploy(project, qipkg, target)
+    assert code != 0 and version(project) == "0.0.1"
+    assert any(line.startswith("✗ install") and "111" in line for line in lines)
+    assert qipkg.names() == ["make-package", "scp", "ssh"], "the copy is removed after a failed install"
+    assert not any("verify" in line for line in lines)
+    assert target.closed == 1
+
+
+def test_install_returning_false_fails_the_step(project):
+    _, code, lines = deploy(project, Qipkg(), Target(result=False))
+    assert code != 0 and version(project) == "0.0.1"
+    assert any(line.startswith("✗ install") and "returned False" in line for line in lines)
+
+
+def test_failed_cleanup_is_reported_but_not_a_failure(project):
+    _, code, lines = deploy(project, Qipkg(remove=255))
+    assert code == 0, lines
+    assert any("could not remove /home/nao/showcase-0.0.2.pkg" in line for line in lines)
+
+
+def test_install_connects_to_the_configured_port(project):
+    config = motors_config(robot={"url": "tcp://10.0.0.2:9561"})
+    d = Deploy(config, "10.0.0.2", lambda line: None, run=Qipkg(), qipkg="qipkg", target=Target(),
+               project_dir=project)
+    assert d.url == "tcp://10.0.0.2:9561"
+    assert Deploy(config, "10.0.0.9", lambda line: None, target=Target()).url == "tcp://10.0.0.9:9561"
+
+
+class FakeManager:
+    def __init__(self, result=True, missing=False):
+        self.calls, self.result, self.missing = [], result, missing
+
+    def removePkg(self, uuid):
+        self.calls.append(("removePkg", uuid))
+        if self.missing:
+            raise RuntimeError("package not found")
+        return True
+
+    def install(self, path):
+        self.calls.append(("install", path))
+        return self.result
+
+
+class FakeRobot:
+    def __init__(self, manager):
+        self.manager, self.disconnected = manager, 0
+
+    def service(self, name):
+        if name == "PackageManager":
+            return self.manager
+        assert name == "ALBehaviorManager"
+        return type("Behaviors", (), {"getInstalledBehaviors": lambda self: ["showcase/dance_robot"]})()
+
+    def disconnect(self):
+        self.disconnected += 1
+
+
+def test_qi_target_removes_the_old_package_then_installs():
+    manager = FakeManager()
+    robot = FakeRobot(manager)
+    target = QiPackageTarget("tcp://10.0.0.2:9561", robot=robot)
+    assert target.install("/home/nao/showcase-0.0.2.pkg") is True
+    assert manager.calls == [("removePkg", "showcase"), ("install", "/home/nao/showcase-0.0.2.pkg")]
+    assert target.installed() == ["showcase/dance_robot"]
+    target.close()
+    assert robot.disconnected == 0, "a borrowed connection stays open"
+
+
+def test_qi_target_installs_when_nothing_was_installed_before():
+    assert QiPackageTarget("u", robot=FakeRobot(FakeManager(missing=True))).install("/home/nao/p.pkg") is True
+
+
+def test_qi_target_needs_a_true_result():
+    assert QiPackageTarget("u", robot=FakeRobot(FakeManager(result=False))).install("/home/nao/p.pkg") is False
+    assert QiPackageTarget("u", robot=FakeRobot(FakeManager(result="ok"))).install("/home/nao/p.pkg") is False
 
 
 def test_bump_keeps_the_rest_of_the_file(project):
@@ -110,17 +235,17 @@ def test_failed_build_sends_nothing_and_undoes_the_bump(project):
     _, code, lines = deploy(project, qipkg)
     assert code != 0
     assert (project / "manifest.xml").read_text() == before
-    assert [c[1] for c in qipkg.commands] == ["make-package"]
+    assert qipkg.names() == ["make-package"]
     assert any("nothing was sent" in line for line in lines)
 
 
 def test_failed_install_undoes_the_bump(project):
-    _, code, _ = deploy(project, Qipkg(install=2))
+    _, code, _ = deploy(project, Qipkg(), Target(error=OSError("broken pipe")))
     assert code != 0 and version(project) == "0.0.1"
 
 
 def test_missing_behavior_after_deploy_is_named(project):
-    _, code, lines = deploy(project, Qipkg(), installed=["showcase/dance_macarena", "showcase/gesture_bow"])
+    _, code, lines = deploy(project, Qipkg(), Target(installed=["showcase/dance_macarena", "showcase/gesture_bow"]))
     assert code != 0
     assert any(line.startswith("✗ verify") and "showcase/dance_robot" in line for line in lines)
 

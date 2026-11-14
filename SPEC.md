@@ -160,7 +160,7 @@ naollm/
 │   │   └── import_choregraphe.py  # converts Choregraphe "export to Python" timelines
 │   ├── deploy/
 │   │   ├── init.py          # `naollm init` (§20)
-│   │   ├── package.py       # wraps qipkg make-package / deploy-package
+│   │   ├── package.py       # qipkg make-package, then scp + PackageManager install
 │   │   └── selftest.py      # on-robot checks
 │   ├── admin/
 │   │   ├── cli.py           # admin prompt, command parser, hotkeys (§18)
@@ -411,7 +411,7 @@ Prompt text lives in `llm/prompts.py`, one per language, versioned in git.
    - finish within 30 s,
    - not use text-to-speech or speech recognition boxes (speech is owned by the bridge),
    - not be set to auto-start.
-4. Install either via *Package and install* in Choregraphe or from the command line with `naollm deploy` / `naollm init` (§20), which wrap `qipkg make-package` and `qipkg deploy-package`. Verify on startup via `installed_behaviors()`.
+4. Install either via *Package and install* in Choregraphe or from the command line with `naollm deploy` / `naollm init` (§20), which build with `qipkg make-package` and install through the robot's `PackageManager`. Verify on startup via `installed_behaviors()`.
 5. Keep `manifest.xml` next to `showcase.pml`; its `uuid` (`showcase`) and `version` are what the robot's PackageManager uses. `naollm deploy` bumps the version automatically.
 6. Simple, single-pose-sequence gestures should preferably be stored as keyframe data files (§19) instead of Choregraphe behaviors; Choregraphe stays the tool for complex multi-box behaviors and as a visual editor.
 7. Config maps enum names to paths:
@@ -907,7 +907,7 @@ While motors are off (see "Interim" above), `naollm init` runs only the connect,
 2. **SSH access** for package deployment: prompt once for the robot's `nao` password and install the laptop's SSH public key, so later deploys are password-free. The password is never written to disk or config.
 3. **Languages**: check German and English for TTS and speech recognition. Missing packs cannot be installed by the CLI; print instructions.
 4. **Robot settings**: Autonomous Life to quiet mode, built-in dialog off, default volume, robot name (`--name`).
-5. **Package deploy**: `qipkg make-package choregraphe/showcase/showcase.pml`, then `qipkg deploy-package <pkg> --url nao@<robot>` (installs through the robot's PackageManager). Compare installed behaviors with the config.
+5. **Package deploy**: `qipkg make-package choregraphe/showcase/showcase.pml`, then `scp` the package to `nao@<robot>:` and install it with `PackageManager.removePkg` and `PackageManager.install` over the configured NAOqi URL (not `qipkg deploy-package`, which connects to a fixed port 9559 and exits with 0 when the install fails). Compare installed behaviors with the config.
 6. **Robot profile**: read joint limits, robot id, NAOqi version, languages; write `~/.naollm/robots/<robot-id>.yaml` (used by the animation validator and for multiple robots).
 7. **Animations**: `anim validate --all` against this robot's limits.
 8. **Self-test** (interactive, operator present, robot on the floor):

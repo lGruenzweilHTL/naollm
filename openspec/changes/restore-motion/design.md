@@ -35,6 +35,8 @@ Facts from `spike/FINDINGS.md`: NAOqi 2.8.5.11, Python 3.12 with `qi` 3.1.5, `qi
 
 **Deploy bumps the version before building, and undoes the bump on failure.** The manifest is edited with `xml.etree`, keeping the file's other content. *Alternative:* bump after a successful install. Rejected, because `qipkg` reads the version from the manifest while it builds.
 
+**Own install instead of `qipkg deploy-package`.** On NAOqi 2.8.7 the robot listens on port 9561. `qipkg deploy-package` connects to a hardcoded `tcp://<host>:9559` for the `PackageManager` call, so the install failed with `Connect error: 111: Connection refused`, and `qipkg` still exited with 0. The deploy now does the same steps itself: `scp -o BatchMode=yes` to `nao@<host>:`, then over the configured NAOqi URL `PackageManager.removePkg("showcase")` and `PackageManager.install("/home/nao/<pkg>")`, which must return `true`, then `ssh rm -f` of the copy. Install and verify share one `qi` connection, because `qi.Application` exists once per process. `qipkg make-package` still builds the package. *Alternatives:* patch the port in the installed `qipkg` (rejected: lost on every reinstall, and the exit code still hides a failed install); call `qipkg deploy-package` and rely on the verify step (rejected: a stale package with the same behaviors passes the verify, and the bump stays).
+
 **Animated speech only with motors on.** `say(animated=True)` maps to `ALAnimatedSpeech` only in `QiMotion` mode. Speech-before-motion already holds in the loop, so gestures from speech and motion tools never overlap.
 
 ## Risks / Trade-offs

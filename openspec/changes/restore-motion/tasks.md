@@ -23,9 +23,10 @@
 ## 4. Package deploy
 
 - [x] 4.1 Create the `choregraphe/showcase/` skeleton: `showcase.pml` and `manifest.xml` with package id `showcase`, no behaviors yet
-- [x] 4.2 Add `deploy/package.py`: manifest version bump with undo, auto-start check, `qipkg make-package`, `qipkg deploy-package`, verify against the catalogue
+- [x] 4.2 Add `deploy/package.py`: manifest version bump with undo, auto-start check, `qipkg make-package`, install, verify against the catalogue
 - [x] 4.3 Add `naollm deploy [--robot]`, refusing with motors off
 - [x] 4.4 Unit-test the bump, the undo on a failed build and the verify step with a stubbed `qipkg`
+- [x] 4.5 Replace `qipkg deploy-package` with scp, `PackageManager.removePkg` and `install` on the configured NAOqi port and an `ssh rm` of the copy; fail the step and undo the bump on any error; test success, a refused connection, `install` returning `false` and the port
 
 ## 5. Init and animation preview
 

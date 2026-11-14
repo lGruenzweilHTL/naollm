@@ -230,9 +230,9 @@ class Init:
         if self._deploy is not None:
             code = self._deploy(host)
         else:
-            from naollm.deploy.package import Deploy
-            code = Deploy(self.config, host, lambda line: self.out("    " + line),
-                          installed=self.robot.motion.installed_behaviors).run()
+            from naollm.deploy.package import Deploy, QiPackageTarget
+            target = QiPackageTarget(self.url, robot=self.robot)
+            code = Deploy(self.config, host, lambda line: self.out("    " + line), target=target).run()
         if code != 0:
             return StepResult("deploy", FAIL, "package deploy failed, see above", "then run 'naollm deploy'")
         return StepResult("deploy", PASS, "showcase package installed and verified")

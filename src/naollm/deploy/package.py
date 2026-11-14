@@ -1,9 +1,14 @@
 """`naollm deploy`: build and install the Choregraphe package (SPEC §9, §20.2).
 
 Steps: motors check, manifest check, version bump, `qipkg make-package`,
-`qipkg deploy-package`, verify against the configured catalogue. The bump is
-undone when the build or the install fails, so the manifest only moves on when a
-package with that version reached the robot.
+install, verify against the configured catalogue. The bump is undone when the
+build or the install fails, so the manifest only moves on when a package with
+that version reached the robot.
+
+The install does not use `qipkg deploy-package`: it connects to a fixed port
+9559, which NAOqi 2.8.7 no longer listens on, and exits with 0 when the install
+fails. It copies the package with `scp`, installs it through `PackageManager`
+on the configured NAOqi URL, and removes the copy over `ssh`.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional, Protocol
 from urllib.parse import urlparse
 
 from naollm.config import Config, robot_url
@@ -38,6 +43,9 @@ MARK = {PASS: "✓", FAIL: "✗", SKIP: "-"}
 Out = Callable[[str], None]
 # Runs a command with the terminal attached and returns its exit code.
 Runner = Callable[[List[str]], int]
+# Fails at once instead of asking for a password: `naollm init` installs the key.
+SSH_OPTIONS = ["-o", "BatchMode=yes"]
+ROBOT_HOME = "/home/nao"
 
 
 class DeployError(Exception):
@@ -145,28 +153,67 @@ def naoqi_url(host: str, config: Config) -> str:
     return robot_url(host)
 
 
-def installed_from_robot(config: Config, host: str) -> List[str]:
-    """Read-only: connects with motors off, whatever the config says."""
-    from naollm.robot.qi_adapter import QiRobot
+class PackageTarget(Protocol):
+    """The robot side of a deploy: install a copied package, list the behaviors."""
 
-    robot = QiRobot(listen_ip=config.robot.listen_ip)
-    robot.connect(naoqi_url(host, config))
-    try:
-        return robot.motion.installed_behaviors()
-    finally:
-        robot.disconnect()
+    def install(self, remote_path: str) -> bool: ...
+
+    def installed(self) -> List[str]: ...
+
+    def close(self) -> None: ...
+
+
+class QiPackageTarget:
+    """`PackageManager` and `ALBehaviorManager` over one `qi` connection.
+
+    Pass a connected robot (as `naollm init` does), or none to connect on first
+    use to `url` with motors off and disconnect in `close`. Install and verify
+    share the connection, because `qi.Application` exists once per process.
+    """
+
+    def __init__(self, url: str, listen_ip: Optional[str] = None, robot: Any = None) -> None:
+        self.url = url
+        self.listen_ip = listen_ip
+        self._robot = robot
+        self._owned = robot is None
+
+    def _connected(self) -> Any:
+        if self._robot is None:
+            from naollm.robot.qi_adapter import QiRobot
+
+            robot = QiRobot(listen_ip=self.listen_ip)
+            robot.connect(self.url)
+            self._robot = robot
+        return self._robot
+
+    def install(self, remote_path: str) -> bool:
+        manager = self._connected().service("PackageManager")
+        try:
+            manager.removePkg(PACKAGE_ID)
+        except Exception:
+            pass  # not installed yet; install() reports any real problem
+        return manager.install(remote_path) is True
+
+    def installed(self) -> List[str]:
+        return list(self._connected().service("ALBehaviorManager").getInstalledBehaviors())
+
+    def close(self) -> None:
+        if self._owned and self._robot is not None:
+            robot, self._robot = self._robot, None
+            robot.disconnect()
 
 
 class Deploy:
     def __init__(self, config: Config, host: str, out: Out, run: Runner = run_command,
-                 qipkg: Optional[str] = None, installed: Optional[Callable[[], List[str]]] = None,
+                 qipkg: Optional[str] = None, target: Optional[PackageTarget] = None,
                  project_dir: Path = PROJECT_DIR) -> None:
         self.config = config
         self.host = host
         self.out = out
         self.run_cmd = run
         self.qipkg = qipkg
-        self.installed = installed or (lambda: installed_from_robot(config, host))
+        self.url = naoqi_url(host, config)
+        self.target = target or QiPackageTarget(self.url, config.robot.listen_ip)
         self.project_dir = Path(project_dir)
         self.steps: List[DeployStep] = []
         self.version: Optional[str] = None
@@ -183,6 +230,15 @@ class Deploy:
 
     def run(self) -> int:
         """Prints one line per step. Returns 0 when every step passed."""
+        try:
+            return self._run()
+        finally:
+            try:
+                self.target.close()
+            except Exception as err:
+                self.out(f"    could not close the robot connection: {err}")
+
+    def _run(self) -> int:
         if not self.config.motion.motors_enabled:
             return self._fail("motors", DeployError(
                 "motors are off: an installed behavior can be started by the robot itself",
@@ -224,19 +280,38 @@ class Deploy:
                 return self._fail("build", DeployError(f"qipkg make-package exited with {code}; nothing was sent",
                                                        "fix the errors above, then run naollm deploy again"))
             self._record(DeployStep("build", PASS, pkg.name))
-            code = self.run_cmd([qipkg, "deploy-package", str(pkg), "--url", f"nao@{self.host}"])
-            if code != 0:
+            try:
+                self.install(pkg)
+            except DeployError as err:
                 self._undo(manifest, original, old)
-                return self._fail("install", DeployError(
-                    f"qipkg deploy-package exited with {code}",
-                    "check SSH access (naollm init sets up the key) and that the robot is on"))
-        self._record(DeployStep("install", PASS, f"installed on nao@{self.host}"))
+                return self._fail("install", err)
+        self._record(DeployStep("install", PASS, f"{pkg.name} installed through PackageManager at {self.url}"))
         return self.verify()
+
+    def install(self, pkg: Path) -> None:
+        """Copy, install, remove the copy. Raises DeployError on any failure."""
+        login = f"nao@{self.host}"
+        code = self.run_cmd(["scp", *SSH_OPTIONS, str(pkg), f"{login}:"])
+        if code != 0:
+            raise DeployError(f"scp to {login} exited with {code}; nothing was installed",
+                              "check that the robot is on and key login works (naollm init sets up the key)")
+        try:
+            ok = self.target.install(f"{ROBOT_HOME}/{pkg.name}")
+        except Exception as err:
+            raise DeployError(f"PackageManager install over {self.url} failed: {err}",
+                              "check robot.url and that NAOqi is running") from None
+        finally:
+            code = self.run_cmd(["ssh", *SSH_OPTIONS, login, "rm", "-f", pkg.name])
+            if code != 0:
+                self.out(f"    could not remove {ROBOT_HOME}/{pkg.name} from the robot (ssh exited with {code})")
+        if not ok:
+            raise DeployError(f"PackageManager.install({ROBOT_HOME}/{pkg.name}) returned False",
+                              "see the PackageManager log on the robot; the package may be broken")
 
     def verify(self) -> int:
         expected = expected_behaviors(self.config)
         try:
-            installed = set(self.installed())
+            installed = set(self.target.installed())
         except Exception as err:
             return self._fail("verify", DeployError(f"cannot read the installed behaviors: {err}"))
         missing = [path for path in expected if path not in installed]
