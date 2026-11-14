@@ -140,6 +140,48 @@ def write_atomic(path: Path, text: str) -> None:
         raise
 
 
+def has_messages(ts_file: Path) -> bool:
+    """True when a Qt `.ts` file holds at least one `<message>` to translate."""
+    try:
+        root = ET.parse(ts_file).getroot()
+    except OSError as err:
+        raise DeployError(f"cannot read translation file {ts_file}: {err.strerror}") from None
+    except ET.ParseError as err:
+        raise DeployError(f"translation file {ts_file} is not valid XML: {err}") from None
+    return root.find(".//message") is not None
+
+
+def stage_project(project_dir: Path, dest: Path) -> Path:
+    """Copies the project to `dest` for the build and returns the copy's `.pml`.
+
+    Choregraphe adds `translations/*.ts` files and `<Translation>` entries when it
+    saves the project, even with nothing to translate. `qipkg make-package` then
+    needs Qt's `lrelease`. The copy leaves out every entry whose file has no
+    message, so the build needs `lrelease` only for real translations. The
+    project itself stays as Choregraphe wrote it.
+    """
+    shutil.copytree(project_dir, dest)
+    pml = dest / PML
+    try:
+        tree = ET.parse(pml)
+    except ET.ParseError as err:
+        raise DeployError(f"{PML} is not valid XML: {err}") from None
+    translations = tree.getroot().find("Translations")
+    if translations is None:
+        return pml
+    kept = []
+    for entry in translations.findall("Translation"):
+        if has_messages(dest / (entry.get("src") or "")):
+            kept.append(entry.get("src"))
+        else:
+            translations.remove(entry)
+    tree.write(pml, encoding="UTF-8", xml_declaration=True)
+    if kept and shutil.which("lrelease") is None:
+        raise DeployError(f"{', '.join(kept)} need Qt's lrelease, which is not installed",
+                          "install the Qt linguist tools (Debian/Ubuntu: qt6-l10n-tools or qttools5-dev-tools)")
+    return pml
+
+
 def expected_behaviors(config: Config) -> List[str]:
     """Catalogue entries that the showcase package must provide."""
     targets = list(config.dances.values()) + list(config.gestures.values())
@@ -274,7 +316,12 @@ class Deploy:
 
         with tempfile.TemporaryDirectory(prefix="naollm-deploy-") as tmp:
             pkg = Path(tmp) / f"{PACKAGE_ID}-{new}.pkg"
-            code = self.run_cmd([qipkg, "make-package", str(pml), "-o", str(pkg)])
+            try:
+                staged = stage_project(self.project_dir, Path(tmp) / PACKAGE_ID)
+            except DeployError as err:
+                self._undo(manifest, original, old)
+                return self._fail("build", err)
+            code = self.run_cmd([qipkg, "make-package", str(staged), "-o", str(pkg)])
             if code != 0 or not pkg.is_file():
                 self._undo(manifest, original, old)
                 return self._fail("build", DeployError(f"qipkg make-package exited with {code}; nothing was sent",

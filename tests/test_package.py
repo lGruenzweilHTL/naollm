@@ -124,7 +124,8 @@ def test_successful_deploy_bumps_the_patch(project):
     assert code == 0, lines
     assert version(project) == "0.0.2"
     make, copy, remove = qipkg.commands
-    assert make[:3] == ["qipkg", "make-package", str(project / "showcase.pml")]
+    assert make[:2] == ["qipkg", "make-package"] and make[2].endswith("/showcase/showcase.pml")
+    assert make[2] != str(project / "showcase.pml"), "the build runs on a copy of the project"
     assert make[-1].endswith("showcase-0.0.2.pkg")
     assert copy == ["scp", "-o", "BatchMode=yes", make[-1], "nao@10.0.0.2:"]
     assert target.installs == ["/home/nao/showcase-0.0.2.pkg"]
@@ -227,6 +228,81 @@ def test_bump_keeps_the_rest_of_the_file(project):
     deploy(project, Qipkg())
     after = (project / "manifest.xml").read_text()
     assert after == before.replace('version="0.0.1"', 'version="0.0.2"')
+
+
+EMPTY_TS = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" language="de_DE">
+</TS>
+"""
+
+FULL_TS = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" language="de_DE">
+<context><name>behavior</name>
+<message><source>Hello</source><translation>Hallo</translation></message>
+</context>
+</TS>
+"""
+
+
+def add_translation(project, name, text):
+    """Adds a translation file and its `.pml` entry, as Choregraphe does when it saves."""
+    (project / "translations").mkdir(exist_ok=True)
+    (project / "translations" / name).write_text(text)
+    pml = project / "showcase.pml"
+    entry = f'<Translation name="{name[:-3]}" src="translations/{name}" language="de_DE" />'
+    pml.write_text(pml.read_text().replace('<Translations auto-fill="de_DE" />',
+                                           f'<Translations auto-fill="de_DE">\n        {entry}\n    </Translations>'))
+
+
+class StagedPml(Qipkg):
+    """Keeps the `.pml` text that `make-package` was given."""
+
+    def __call__(self, cmd):
+        if cmd[0] == "qipkg":
+            self.pml = Path(cmd[2]).read_text()
+        return super().__call__(cmd)
+
+
+def test_empty_translations_are_left_out_of_the_build(project, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    add_translation(project, "translation_de_DE.ts", EMPTY_TS)
+    before = (project / "showcase.pml").read_text()
+    qipkg = StagedPml()
+    d, code, lines = deploy(project, qipkg)
+    assert code == 0, lines
+    assert "<Translation " not in qipkg.pml and "<Translations" in qipkg.pml
+    assert (project / "showcase.pml").read_text() == before, "the project keeps what Choregraphe wrote"
+
+
+def test_real_translation_without_lrelease_fails_the_build(project, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    add_translation(project, "translation_de_DE.ts", FULL_TS)
+    qipkg = Qipkg()
+    d, code, lines = deploy(project, qipkg)
+    assert code != 0 and qipkg.commands == []
+    assert any("lrelease" in line for line in lines)
+    assert version(project) == "0.0.1"
+
+
+def test_real_translation_is_kept_when_lrelease_exists(project, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/" + name)
+    add_translation(project, "translation_de_DE.ts", FULL_TS)
+    qipkg = StagedPml()
+    d, code, lines = deploy(project, qipkg)
+    assert code == 0, lines
+    assert 'src="translations/translation_de_DE.ts"' in qipkg.pml
+
+
+def test_missing_translation_file_fails_the_build(project):
+    add_translation(project, "translation_de_DE.ts", EMPTY_TS)
+    (project / "translations" / "translation_de_DE.ts").unlink()
+    qipkg = Qipkg()
+    d, code, lines = deploy(project, qipkg)
+    assert code != 0 and qipkg.commands == []
+    assert any("translation_de_DE.ts" in line for line in lines)
+    assert version(project) == "0.0.1"
 
 
 def test_failed_build_sends_nothing_and_undoes_the_bump(project):
