@@ -11,7 +11,7 @@
 robot:
   url: tcp://192.168.8.20:9561   # NAOqi 2.8.7 and later; 9559 before 2.8.7
   language: German            # default turn language: German | English
-  battery_reliable: false     # this robot's battery reads 100 % whatever its charge
+  battery_reliable: true      # false when the battery reads 100 % whatever its charge; motors then refuse to start
   # listen_ip: 192.168.8.10   # this laptop's address, if remote audio does not arrive
 llm:
   base_url: http://localhost:11434/v1
@@ -48,7 +48,7 @@ audio:
   # wake_model: ~/.naollm/models/hey_nao.onnx   # required with wake_engine: laptop
   laptop_wake_threshold: 0.5  # laptop engine only; tune with `ears test`
 motion:
-  motors_enabled: false      # must stay false on the real robot until real motion exists
+  motors_enabled: true       # false runs the bridge with no motor commands, for a hardware fault
   walking_enabled: false
   max_turn_deg: 90
   max_step_cm: 30

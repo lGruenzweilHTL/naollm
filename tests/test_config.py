@@ -127,8 +127,8 @@ def test_no_speech_timeout_must_be_positive():
 
 def test_example_targets_this_robot():
     cfg = load_config(ROOT / "config.example.yaml")
-    assert cfg.motion.motors_enabled is False
-    assert cfg.robot.language == "German" and cfg.robot.battery_reliable is False
+    assert cfg.motion.motors_enabled is True
+    assert cfg.robot.language == "German" and cfg.robot.battery_reliable is True
     assert cfg.stt.languages == ["de", "en"] and cfg.stt.fallback_language == "de"
     assert cfg.audio.wake_language == "German" and cfg.audio.wake_words == ["Hallo NAO", "Hey NAO"]
     assert cfg.conversation.school_name == "unserer Schule"

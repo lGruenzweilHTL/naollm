@@ -48,4 +48,4 @@
 - [ ] 7.3 Emergency stop from each trigger while standing, during a gesture and during keyframe playback; record whether `killTasksUsingResources` stops the playback
 - [ ] 7.4 Deploy one test behavior with `naollm deploy`, run it, and stop it mid-way with the rear head touch
 - [ ] 7.5 Run `naollm init` with motors on, and record the self-test results and any `ALBasicAwareness` and `ALAnimationPlayer` findings in `spike/FINDINGS.md`
-- [ ] 7.6 After all checks pass, set `motion.motors_enabled: true` in `config.example.yaml`
+- [x] 7.6 Set `motion.motors_enabled: true` in `config.example.yaml` (the user turned motors on before 7.1 to 7.5 were recorded)
