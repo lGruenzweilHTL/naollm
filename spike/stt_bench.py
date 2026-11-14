@@ -25,11 +25,22 @@ experiment). It uses the OpenAI-style
 transcript only, and is scored with the same WER and latency. Its "load" is the
 time of the first, unscored request.
 
+Raw clips (record_clips.py --raw) are cut here first, as a voice turn cuts
+them: `UtteranceDetector` with the VAD settings from the config, or the ones
+given with --aggressiveness, --silence, --start and --pre-roll (try the best
+row from spike/vad_tune.py before you change the code). So one raw recording
+serves both the VAD sweep and this benchmark. A raw clip the VAD drops is
+listed with the reason and left out of the table: no speech found, an utterance shorter than the voice turn
+accepts, or a noise-only clip in which the VAD started an utterance (a false
+start). Noise-only clips are never transcribed.
+
 Usage:
   .venv/bin/python spike/stt_bench.py spike/clips
   .venv/bin/python spike/stt_bench.py spike/clips --models small,gemma:gemma4:e4b --llm
   .venv/bin/python spike/stt_bench.py spike/clips --models small,distil-small.en --llm -v
   .venv/bin/python spike/stt_bench.py spike/clips --tag far --llm --run "gemma4:e2b, reasoning off"
+  .venv/bin/python spike/stt_bench.py spike/clips/raw --models base,small,large-v3-turbo
+  .venv/bin/python spike/stt_bench.py spike/clips/raw --aggressiveness 3 --silence 0.6
 """
 
 from __future__ import annotations
@@ -56,10 +67,15 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from naollm.audio.listener import MIN_UTTERANCE_S  # noqa: E402
 from naollm.audio.stt import SpeechToText  # noqa: E402
+from naollm.audio.vad import (  # noqa: E402
+    PRE_ROLL_FRAMES, SPEECH_START_FRAMES, VAD_AGGRESSIVENESS, End, UtteranceDetector, webrtc_speech_test,
+)
 from naollm.config import load_config  # noqa: E402
 
-DEFAULT_MODELS = "tiny.en,base.en,small,small.en,distil-small.en"
+# Multilingual only: the bridge allows German and English.
+DEFAULT_MODELS = "base,small,medium,large-v3-turbo"
 DEFAULT_RUN = "gemma4:e4b, reasoning off"
 RATE = 16000
 
@@ -68,6 +84,12 @@ NUMBERS = {w: str(i) for i, w in enumerate(
     "fifteen sixteen seventeen eighteen nineteen twenty".split())}
 NUMBERS.update({"thirty": "30", "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70",
                 "eighty": "80", "ninety": "90", "hundred": "100"})
+# German number words, so "zwölf" and "12" count as equal.
+NUMBERS.update({w: str(i) for i, w in enumerate(
+    "null eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf dreizehn vierzehn "
+    "fünfzehn sechzehn siebzehn achtzehn neunzehn zwanzig".split())})
+NUMBERS.update({"ein": "1", "eine": "1", "dreißig": "30", "vierzig": "40", "fünfzig": "50", "sechzig": "60",
+                "siebzig": "70", "achtzig": "80", "neunzig": "90", "hundert": "100"})
 SPELLING = {"favourite": "favorite", "colour": "color", "colours": "colors", "metre": "meter",
             "metres": "meters", "centimetres": "centimeters", "okay": "ok"}
 
@@ -118,23 +140,68 @@ class ModelRun:
     skipped: str = ""
 
 
-def load_clips(folders: List[Path], tag: Optional[str]) -> List[Clip]:
-    clips = []
+@dataclass
+class VadSetting:
+    aggressiveness: int
+    silence_s: float
+    start_frames: int
+    pre_roll_frames: int
+
+    def describe(self) -> str:
+        return (f"VAD aggressiveness {self.aggressiveness}, silence {self.silence_s:g} s, "
+                f"start {self.start_frames}, pre-roll {self.pre_roll_frames}")
+
+
+def cut_raw(pcm: bytes, vad: VadSetting, audio_cfg) -> Tuple[Optional[bytes], str]:
+    """The utterance a voice turn would take from a raw stream, or None and why it would drop it.
+
+    A raw clip stops where the reader pressed Enter. When the VAD has not ended by
+    then, the utterance so far is taken, as more silence would have ended it.
+    """
+    detector = UtteranceDetector(webrtc_speech_test(vad.aggressiveness), vad.silence_s, audio_cfg.max_utterance_s,
+                                 audio_cfg.no_speech_timeout_s, vad.start_frames, vad.pre_roll_frames)
+    detector.feed(pcm)
+    if detector.end == End.NO_SPEECH or not detector.audio:
+        return None, "no speech found"
+    if detector.speech_s < MIN_UTTERANCE_S:
+        return None, f"utterance {detector.speech_s:.2f} s, shorter than {MIN_UTTERANCE_S} s"
+    return detector.audio, ""
+
+
+def read_wav(path: Path) -> bytes:
+    with wave.open(str(path), "rb") as w:
+        if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (RATE, 1, 2):
+            raise SystemExit(f"{path}: need 16 kHz mono 16-bit")
+        return w.readframes(w.getnframes())
+
+
+def load_clips(folders: List[Path], tag: Optional[str], vad: VadSetting, audio_cfg
+               ) -> Tuple[List[Clip], List[Tuple[str, str]]]:
+    """Cut clips as recorded, raw clips cut by the VAD, and the dropped raw clips with the reason."""
+    clips: List[Clip] = []
+    dropped: List[Tuple[str, str]] = []
     for folder in folders:
         manifest = folder / "clips.yaml"
         if not manifest.exists():
             raise SystemExit(f"{manifest} not found; record clips with spike/record_clips.py")
         for item in yaml.safe_load(manifest.read_text(encoding="utf-8")) or []:
-            if item.get("raw") or (tag and item.get("tag") != tag):
-                continue  # raw clips are uncut streams, for spike/vad_tune.py
+            if tag and item.get("tag") != tag:
+                continue
             path = folder / item["file"]
-            with wave.open(str(path), "rb") as w:
-                if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (RATE, 1, 2):
-                    raise SystemExit(f"{path}: need 16 kHz mono 16-bit")
-                pcm = w.readframes(w.getnframes())
+            pcm = read_wav(path)
+            if item.get("raw"):
+                cut, why = cut_raw(pcm, vad, audio_cfg)
+                if not item.get("text"):  # noise only: any utterance is a false start
+                    if cut is not None:
+                        dropped.append((path.name, "noise only, but the VAD started an utterance"))
+                    continue
+                if cut is None:
+                    dropped.append((path.name, why))
+                    continue
+                pcm = cut
             clips.append(Clip(path, item["text"], item.get("lang", "en"), len(pcm) / 2 / RATE, pcm,
                               item.get("tag", ""), item.get("profile"), item.get("expect")))
-    return clips
+    return clips, dropped
 
 
 # -- STT -----------------------------------------------------------------
@@ -403,11 +470,25 @@ def main() -> int:
     ap.add_argument("--profiles", type=Path, default=ROOT / "tests/eval/profiles")
     ap.add_argument("--json", type=Path, help="write every transcript and timing here")
     ap.add_argument("-v", "--verbose", action="store_true", help="print every transcript, not only wrong ones")
+    ap.add_argument("--aggressiveness", type=int, choices=[0, 1, 2, 3],
+                    help=f"raw clips: webrtcvad mode; default VAD_AGGRESSIVENESS ({VAD_AGGRESSIVENESS})")
+    ap.add_argument("--silence", type=float, help="raw clips: seconds of silence that end; default audio.vad_silence_s")
+    ap.add_argument("--start", type=int, help=f"raw clips: speech frames that start; default {SPEECH_START_FRAMES}")
+    ap.add_argument("--pre-roll", type=int, help=f"raw clips: frames kept before the start; default {PRE_ROLL_FRAMES}")
     args = ap.parse_args()
 
     config = load_config(args.config)
     stt_cfg = config.stt
-    clips = load_clips(args.clips, args.tag)
+    vad = VadSetting(
+        VAD_AGGRESSIVENESS if args.aggressiveness is None else args.aggressiveness,
+        config.audio.vad_silence_s if args.silence is None else args.silence,
+        SPEECH_START_FRAMES if args.start is None else args.start,
+        PRE_ROLL_FRAMES if args.pre_roll is None else args.pre_roll)
+    clips, dropped = load_clips(args.clips, args.tag, vad, config.audio)
+    if dropped:
+        print(f"raw clips cut with {vad.describe()}: {len(dropped)} dropped, not in the table below")
+        for name, why in dropped:
+            print(f"  {name}: {why}")
     if not clips:
         print("no clips", file=sys.stderr)
         return 2
