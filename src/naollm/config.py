@@ -87,17 +87,6 @@ class AudioConfig(_Strict):
     vad_silence_s: float = Field(0.8, gt=0)
     max_utterance_s: float = Field(15.0, gt=0)
     no_speech_timeout_s: float = Field(5.0, gt=0)
-    # robot: ALSpeechRecognition word spotting; audio leaves the robot only after a trigger.
-    # laptop: openWakeWord on a continuous stream while idle (laptop-wake-word spec).
-    wake_engine: Literal["robot", "laptop"] = "robot"
-    wake_model: Optional[str] = None
-    laptop_wake_threshold: float = Field(0.5, ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def _laptop_needs_a_model(self) -> "AudioConfig":
-        if self.wake_engine == "laptop" and not self.wake_model:
-            raise ValueError("audio.wake_model is required when audio.wake_engine is laptop")
-        return self
 
 
 class MotionConfig(_Strict):

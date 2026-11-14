@@ -205,10 +205,9 @@ class Commands:
         llm = "—" if self.conversation is None else ("ON" if b.llm_enabled else "OFF")
         faces = len(b.robot.perception.recognized_names()) if b.config.privacy.face_recognition_enabled else 0
         motors = "" if b.motors_enabled else "motors OFF | "
-        streaming = " | wake LAPTOP, audio streams" if b.config.audio.wake_engine == "laptop" else ""
         age = " | AGE GAME ON" if b.config.privacy.age_game_enabled else ""
         return (f"{b.state.state.value} | {motors}{robot_part} | walking {'ON' if b.walking else 'OFF'} | "
-                f"LLM {llm} | faces {faces}{streaming}{age}")
+                f"LLM {llm} | faces {faces}{age}")
 
     async def cmd_status(self, args: List[str]) -> None:
         b = self.bridge
@@ -454,8 +453,6 @@ class Commands:
             self.out(f"notice: refused during a turn (state {b.state.state.value})")
             return
         text = msg("notice", b.language, wake=b.config.audio.wake_words[0] if b.config.audio.wake_words else "NAO")
-        if b.config.audio.wake_engine == "laptop":
-            text += " " + msg("notice_streaming", b.language)
         if b.config.privacy.age_game_enabled:
             text += " " + msg("notice_age", b.language)
         if b.motors_enabled:

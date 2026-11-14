@@ -39,9 +39,9 @@ Open questions that change this plan (SPEC §17): how long the showcase runs (qu
    ```bash
    naollm run --config config.yaml
    ```
-2. Tune the wake word for the room: type `ears test`, say the wake phrase at 1 m a few times, and look at the scores. Set `audio.wake_threshold` (robot engine) or `audio.laptop_wake_threshold` (laptop engine) between the background and the phrase, then restart.
+2. Tune the wake word for the room: type `ears test`, say the wake phrase at 1 m a few times, and look at the scores. Set `audio.wake_threshold` between the background and the phrase, then restart.
 3. Type `notice`. The robot speaks the privacy notice. Repeat it now and then, between visitors.
-4. Type `status`. Check: connected, the right state, `motors OFF` if motors are off, `AGE GAME ON` or `wake LAPTOP` only if planned.
+4. Type `status`. Check: connected, the right state, `motors OFF` if motors are off, `AGE GAME ON` only if planned.
 
 ## During the event
 

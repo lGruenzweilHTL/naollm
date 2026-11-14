@@ -134,49 +134,18 @@ Needs: a German language pack installed on the robot for both speech output and 
 
 ---
 
-## D. Laptop wake engine (`add-laptop-wake-word` 1.3, 5.3, 6.1, 6.2)
+## D. Wake word hit rate and speech to text
 
-The laptop engine streams the robot's microphone to the laptop all the time while idle. Use it only for these tests until you decide on an engine.
-
-1. **Install** on this laptop:
-   ```bash
-   .venv/bin/python -m pip install -e '.[wake]'
-   .venv/bin/python -m pip install --no-deps openwakeword==0.6.0
-   .venv/bin/python -c "from openwakeword.utils import download_models; download_models()"
-   ```
-   If `.venv` has no pip, use `uv pip install --python .venv/bin/python ...` with the same arguments.
-2. **Train the model** (`add-laptop-wake-word` 1.3), on a machine with a GPU such as Google Colab, with openWakeWord's automatic training notebook and the settings in the README ("Laptop wake engine"). Nobody is recorded: the samples are synthetic. Check the parameter names against the notebook, they were not verified here. Save the result as `~/.naollm/models/hey_nao.onnx`, and commit any changed settings to the README.
-3. Make a test configuration. Copy `config.yaml` and add these two lines under `audio:` by hand:
-   ```bash
-   cp config.yaml ~/.naollm/configs/laptop-wake.yaml
-   ```
-   ```yaml
-     wake_engine: laptop
-     wake_model: ~/.naollm/models/hey_nao.onnx
-   ```
-4. Start it. The console must show the `WAKE ENGINE LAPTOP` alert, and `status` must show `wake LAPTOP, audio streams`:
-   ```bash
-   .venv/bin/naollm run --config ~/.naollm/configs/laptop-wake.yaml
-   ```
-   ```
-   status
-   ears test
-   notice
-   ```
-   In `ears test`, say "Hey NAO" a few times at 1 m; it prints one score per second and the highest. Set `audio.laptop_wake_threshold` between the background and the phrase. `notice` must say that audio streams all the time and is discarded.
-5. **Measure both engines** (`add-laptop-wake-word` 6.1), for `config.yaml` (robot engine) and the laptop configuration:
+1. **Measure the robot's word spotting** with `config.yaml`:
    - 10 tries of "Hey NAO" at 1 m in a quiet room, then 10 in a noisy room. Target: at least 8 of 10.
    - 10 minutes with people chatting near the robot, nobody saying the phrase. Count false triggers (the robot beeps and listens). Target: fewer than 1.
-6. **Gemma audio experiment** (`add-laptop-wake-word` 5.3). Record cut clips in German and English with people who agreed, then compare Whisper and Gemma:
+2. **Compare speech to text models.** Record cut clips in German and English, then compare Whisper models, and Gemma audio input as one more candidate:
    ```bash
    .venv/bin/python spike/record_clips.py --source robot --tag near
    .venv/bin/python spike/stt_bench.py spike/clips --models small,base,gemma:gemma4:e4b
    ```
-   Propose an STT change only if Gemma beats Whisper in both languages. Delete `spike/clips/` when done.
-7. Recommend one engine for the event from the numbers in step 5 (`add-laptop-wake-word` 6.2). If it is the laptop engine, use the matching signage in `docs/signage.md`.
 
-**Record in `spike/FINDINGS.md`:** hits and false triggers per engine and room, the thresholds, the Gemma vs Whisper table, and the recommendation.
-
+**Record in `spike/FINDINGS.md`:** hits and false triggers per room, the threshold, and the speech to text table.
 ---
 
 ## E. Age game (`add-age-game` 1.2, 1.3, 6.1)
@@ -295,7 +264,6 @@ Several changes start with "confirm the earlier change is archived". Archive eac
 /opsx:archive add-qi-adapter
 /opsx:archive add-faces-consent
 /opsx:archive restore-german
-/opsx:archive add-laptop-wake-word
 /opsx:archive add-age-game
 /opsx:archive restore-motion
 /opsx:archive harden-for-event

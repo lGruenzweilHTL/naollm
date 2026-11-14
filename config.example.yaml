@@ -41,12 +41,6 @@ audio:
   vad_silence_s: 0.8
   max_utterance_s: 15
   no_speech_timeout_s: 5     # stop listening when nobody speaks after a trigger
-  # robot: word spotting on the robot; audio leaves the robot only after a trigger.
-  # laptop: openWakeWord on the laptop. The robot then streams audio all the time while
-  # idle (kept 2 s, never stored), so the signage and `notice` must say so (SPEC §11.2).
-  wake_engine: robot
-  # wake_model: ~/.naollm/models/hey_nao.onnx   # required with wake_engine: laptop
-  laptop_wake_threshold: 0.5  # laptop engine only; tune with `ears test`
 motion:
   motors_enabled: true       # false runs the bridge with no motor commands, for a hardware fault
   walking_enabled: false

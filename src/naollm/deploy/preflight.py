@@ -126,9 +126,6 @@ class Preflight:
         if cfg.privacy.age_game_enabled:
             self._add(Check("age_game", WARN, "the age game is on: the signage must announce it, and the school "
                                               "must have cleared it (README, 'Age game')"))
-        if cfg.audio.wake_engine == "laptop":
-            self._add(Check("wake_engine", WARN, "the laptop wake engine streams audio all the time: use the "
-                                                 "signage variant for it (README, 'Laptop wake engine')"))
         if cfg.privacy.face_recognition_enabled:
             self._add(Check("faces", WARN, "face recognition is on: signed consent forms must exist for every "
                                            "enrolled face"))
@@ -241,15 +238,12 @@ class Preflight:
         tts_needed = sorted({TTS_LANGUAGE[c] for c in cfg.stt.languages} | {cfg.robot.language})
         tts = self.robot.speech.installed_languages()
         missing = [f"TTS {x}" for x in tts_needed if x not in tts]
-        asr_needed = [cfg.audio.wake_language] if cfg.audio.wake_engine == "robot" else []
-        if asr_needed:
-            asr = self.robot.audio.wake_languages()
-            missing += [f"ASR {x}" for x in asr_needed if x not in asr]
+        asr = self.robot.audio.wake_languages()
+        missing += [f"ASR {x}" for x in [cfg.audio.wake_language] if x not in asr]
         if missing:
             return Check("languages", FAIL, f"missing: {', '.join(missing)}",
                          "install the language pack (README, 'Languages'), or switch to English only")
-        return Check("languages", PASS, f"TTS {', '.join(tts_needed)}" + (f"; ASR {asr_needed[0]}" if asr_needed
-                                                                          else ""))
+        return Check("languages", PASS, f"TTS {', '.join(tts_needed)}; ASR {cfg.audio.wake_language}")
 
     def behaviors(self) -> Check:
         cfg = self.config

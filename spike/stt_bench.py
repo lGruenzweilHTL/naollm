@@ -19,8 +19,8 @@ WER normalises case, punctuation, British spelling and number words, so
 "Twelve times seven?" and "12 times 7" count as equal.
 
 A model named `gemma:<ollama model>`, such as `gemma:gemma4:e4b`, sends each
-clip as audio input to the chat endpoint instead of Whisper (the Gemma audio
-experiment of the add-laptop-wake-word change). It uses the OpenAI-style
+clip as audio input to the chat endpoint instead of Whisper (SPEC §11.2
+experiment). It uses the OpenAI-style
 `input_audio` content part on `llm.base_url` from --config, asks for the
 transcript only, and is scored with the same WER and latency. Its "load" is the
 time of the first, unscored request.

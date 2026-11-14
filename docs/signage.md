@@ -18,14 +18,6 @@ Print the variant that matches `config.yaml`. Change the wake phrases if `audio.
 
 Leave out „und dreht den Kopf zu dir" and "and he turns his head to you".
 
-## Laptop wake engine (`audio.wake_engine: laptop`)
-
-Replace the second sentence with:
-
-> Sein Mikrofon schickt die ganze Zeit Ton an diesen Laptop. Dort wird er nur auf „Hallo NAO" geprüft und gleich wieder verworfen. Nach dem Weckwort hört er kurz zu und verarbeitet Sprache nur lokal auf diesem Laptop.
-
-> His microphone sends audio to this laptop all the time. There it is only checked for "Hey NAO" and then discarded. After the wake phrase he listens for a moment and processes speech only locally on this laptop.
-
 ## Age game (`privacy.age_game_enabled: true`)
 
 Only after the school has cleared the game. Add:

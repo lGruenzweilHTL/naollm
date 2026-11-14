@@ -78,10 +78,6 @@ MESSAGES: Dict[str, Dict[str, str]] = {
                "en": "Say {wake} or tap the front of my head. Then I listen for a moment. "
                      "Speech is processed locally and is not stored. "
                      "I recognize faces only of club members who consented."},
-    "notice_streaming": {"de": "Mein Mikrofon schickt die ganze Zeit Ton an den Laptop. Dort wird er nur "
-                                 "auf das Weckwort geprüft und gleich wieder verworfen.",
-                         "en": "My microphone sends audio to the laptop all the time. There it is only "
-                               "checked for the wake phrase and then discarded."},
     "notice_tracking": {"de": "Meine Kamera merkt nur, dass jemand da ist, und ich drehe den Kopf zu dir.",
                         "en": "My camera only notices that someone is there, and I turn my head to you."},
     "battery_critical": {"de": "Mein Akku ist fast leer. Ich setze mich hin und ruhe mich aus.",

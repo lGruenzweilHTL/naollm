@@ -510,7 +510,7 @@ Audio always comes from NAO's own microphones (front mic, 16 kHz mono).
 
 ### 11.2 v2 (optional)
 
-- Continuous streaming + laptop-side wake word (e.g. openWakeWord with a custom "Hey NAO" model) if NAO's built-in word spotting proves unreliable. Privacy note: audio then leaves the robot continuously (still local, still discarded), signage must say so.
+- ~~Continuous streaming + laptop-side wake word (openWakeWord with a custom "Hey NAO" model).~~ Dropped on 2026-11-14 by the project owner: the robot's own word spotting is used, tuned through `audio.wake_threshold` and `ears test`, and audio never leaves the robot before a trigger.
 - Experiment: send audio directly to Gemma 4 instead of Whisper. Only worth trying with E4B (E2B's audio is reportedly weak), and only if it beats Whisper on our own recorded test clips in both languages.
 
 ### 11.3 Speech output

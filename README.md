@@ -72,27 +72,6 @@ Only after a new battery is fitted. First compare the battery reading with the c
 - `naollm anim preview <name> [--speed 0.5]` plays one animation slowly through the gate, after you confirm that your hands are near the robot. Set `reviewed_by` in the file only after a preview.
 - With `motion.motors_enabled: false`, everything works as before: no motor command, no SSH or deploy step in init.
 
-### Laptop wake engine
-
-`audio.wake_engine: laptop` runs the wake word on this laptop with openWakeWord instead of the robot's word spotting, which heard `Hey NAO` at only 0.43 and 0.44. **This changes the privacy promise:** while the bridge is idle with ears on, the robot streams its front microphone to the laptop all the time (about 32 KB/s on the club router). The laptop keeps at most 2 s of that audio in memory, checks it for the wake phrase and discards it; nothing is written to disk, logged or transcribed. The stream stops while the robot listens, thinks, speaks or moves, after `ears off`, in STOPPED and while disconnected, and a trigger opens a separate stream for listening. The console warns at startup, the status line shows `wake LAPTOP, audio streams`, and `notice` says it. Use the signage variant below. The default stays `robot`.
-
-Install, on Python 3.12 (openwakeword 0.6.0 depends on `tflite-runtime`, which has no 3.12 wheel, so it is installed without its dependencies and runs on onnxruntime):
-
-```bash
-pip install -e '.[wake]'
-pip install --no-deps openwakeword==0.6.0
-python -c "from openwakeword.utils import download_models; download_models()"   # feature models, once
-```
-
-Train a "Hey NAO" model from synthetic speech, so nobody has to be recorded:
-
-1. Open openWakeWord's automatic training notebook (`notebooks/automatic_model_training.ipynb` in the openWakeWord repository) on a machine with a GPU, for example Google Colab.
-2. Settings: `target_phrase: ["hey nao", "hey now"]` (both spellings, so Piper says it the way people do), `n_samples: 30000`, `n_samples_val: 2000`, `steps: 50000`, `target_accuracy: 0.7`, `target_recall: 0.5`, and the default negative data and room impulse responses. Add `"hallo nao"` as a second model if German visitors say that.
-3. Download the `.onnx` file, put it at `~/.naollm/models/hey_nao.onnx` (outside git), and set `audio.wake_model` to that path.
-4. Run `naollm run`, then `ears test`: it shows the model's score once per second for 30 s and the highest score. Set `audio.laptop_wake_threshold` between the background scores and the scores when the phrase is said at 1 m.
-
-If the extra or the model file is missing, the bridge still starts, raises an alert that names the cause, and keeps head tap and the operator key. It does not switch to the robot engine on its own, because the signage matches the configured engine.
-
 ### Languages
 
 `config.example.yaml` is German and English: each turn's language comes from speech to text, and the robot answers in it. The wake phrases are `Hallo NAO` and `Hey NAO`, spotted by the German ASR, because word spotting runs in one fixed language. This needs a German language pack on the robot for both `ALTextToSpeech` and `ALSpeechRecognition`. The pack is installed by hand (SPEC §20.3), and `naollm init` checks both languages. On a robot without German, switch to English only as the comments at the top of the example say, then run `ears test` and `naollm init` again. `naollm eval` reports the score per profile and per language, so a weak language is not hidden in an average.
@@ -161,12 +140,6 @@ With `privacy.age_game_enabled: true`, add:
 > Wenn du NAO darum bittest, schätzt er ungefähr dein Alter. Die Schätzung wird nicht gespeichert. Geschlecht und Gefühle werden nie erkannt.
 
 > If you ask NAO, he roughly guesses your age. The guess is not stored. Gender and emotions are never detected.
-
-With `audio.wake_engine: laptop`, replace the second sentence:
-
-> Sein Mikrofon schickt die ganze Zeit Ton an diesen Laptop. Dort wird er nur auf "Hallo NAO" geprüft und gleich wieder verworfen. Nach dem Weckwort hört er kurz zu und verarbeitet Sprache nur lokal auf diesem Laptop.
-
-> His microphone sends audio to this laptop all the time. There it is only checked for "Hey NAO" and then discarded. After the wake phrase he listens for a moment and processes speech only locally on this laptop.
 
 Change the wake phrases here if you change `audio.wake_words`, and add the head turning only when motors are back.
 
