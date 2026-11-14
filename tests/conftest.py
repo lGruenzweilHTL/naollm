@@ -1,9 +1,29 @@
 from __future__ import annotations
 
+import socket
+
 import pytest
 
 from naollm.config import Config, parse_config
 from naollm.robot.fake_adapter import FakeRobot
+
+# Example names stand for a cloud endpoint. A network with a search domain and
+# wildcard DNS resolves any unknown name to a private address, which would make
+# them look local, so the tests answer for them with a public address.
+PUBLIC_TEST_IP = "93.184.215.14"
+
+
+@pytest.fixture(autouse=True)
+def public_example_dns(monkeypatch):
+    real = socket.getaddrinfo
+
+    def getaddrinfo(host, *args, **kwargs):
+        if isinstance(host, str) and (host == "example.com" or host.endswith(".example.com")):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC_TEST_IP, 0))]
+        return real(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+
 
 FAST = 0.01  # fake robot time scale: a 6 s behavior takes 60 ms
 
