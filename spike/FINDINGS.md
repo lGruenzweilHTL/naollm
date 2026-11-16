@@ -4,6 +4,8 @@ Date: 2026-11-05 · Robot name: nao · Operator: ____
 
 ## Constraint: no motors on this robot
 
+**Lifted.** This constraint applied to the first robot with the defective battery. Konrad has a working battery and passed the motion checks (see "Motion checks on Konrad" at the end).
+
 The robot's battery is defective. Test only features that need no motors, and always run the spike with `--no-motion`. Do not run behaviors, gestures, `ALAnimatedSpeech`, `wakeUp` or `rest`.
 
 Every check that needs motors stays open until the battery is replaced. A result of "not tested" here does not mean the feature works.
@@ -219,3 +221,11 @@ Read-only probes on Konrad with the robot crouching and the motors off. The only
 - **`ALBodyTemperature` has no methods.** It lists only the module basics (`ping`, `version`, `getMethodList` and similar), so `getTemperatureDiagnosis` raises `AttributeError`. The adapter now reads `Device/SubDeviceList/<device>/Temperature/Sensor/Status` for the 26 joints and `Battery` with one `ALMemory.getListData` call and takes the highest value (0 ok, 1 hot, 2 very hot, 3 critical). All values read 0 at rest. A key the robot does not have reads `None`. The events `HotDeviceDetected` and `TemperatureStatusChanged` still exist.
 - **`ALAudioPlayer.playSine` is gone,** and `ALAudioDevice` has no `playSine` either. The listening sound is now NAOqi's own `/opt/aldebaran/share/naoqi/wav/begin_reco.wav` through `ALAudioPlayer.playFile(path, 0.4, 0.0)`. The call returns after the sound, in 0.22 s.
 - **A new service is not listed at once.** `session.registerService("NaollmAudio", ...)` returns before the robot's service directory lists the service. An `ALAudioDevice.setClientPreferences` call in that gap fails with `ALProxy::ALProxy Can't find service: NaollmAudio`. The service was listed 0.05 to 0.1 s later, and then the stream delivered about 30 000 bytes per second. The adapter now waits up to 2 s until `session.services()` lists the client.
+
+## Motion checks on Konrad (restore-motion, task 7)
+
+Recorded 2026-11-16 from the user's report. The checks ran on Konrad while the dances were being reviewed and signed off (`robot`, `victory`, `macarena`). No measurements were written down at the time.
+
+- 7.1 to 7.5 confirmed working by the user: setup on a mat with an operator in reach, `wake` and `rest`, Stand and Crouch through `posture`, emergency stop, a deployed behavior, and `naollm init` with motors on.
+- Emergency stop confirmed working, including during keyframe playback, so `killTasksUsingResources` stops the playback.
+- No `ALBasicAwareness` or `ALAnimationPlayer` problems were reported.

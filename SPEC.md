@@ -1,8 +1,9 @@
 # SPEC — NAO 6 × LLM Bridge (Robotics Club Showcase)
 
-Status: Draft v0.3 · 2026-11-05
+Status: Draft v0.4 · 2026-11-16
 
 Changelog:
+- v0.4 (2026-11-16): motors are on for Konrad after the on-robot motion checks passed; the "Interim" section keeps the motors-off setting documented for robots that need it.
 - v0.3 (2026-11-05): recorded the interim state of the real robot (see "Interim: motors off" below; it was English only until German returned). Added `audio.no_speech_timeout_s` and `robot.battery_reliable`, `robot.listen_ip`, `motion.motors_enabled`; chose `webrtcvad-wheels` for VAD; dropped `audio/robot_stream.py` and `audio/wake.py` for `robot/qi_adapter.py` and `audio/listener.py`; adapted `naollm init` and face enrolment to motors off; added an English notice and signage.
 - v0.2 (2026-10-30): resolved review conflicts. Gate rejects out-of-range arguments (no clamping); LLM `stop` is a soft stop; status colours removed from `set_eyes`; gesture enum generated from config; speech finishes before motion; wake-word ASR fixed to German; `RobotAdapter` split into sub-interfaces; eval cases tagged with config profiles; listen hotkey `space` only on an empty prompt line; wake-word commands renamed to `ears`; phase 0 spike kept outside OpenSpec in `spike/`.
 - v0.1 (2026-10-28): first draft.
@@ -10,17 +11,16 @@ Scope: A local, privacy-first system that lets a NAO 6 robot hold spoken convers
 
 ---
 
-## Interim: motors off
+## Interim
 
-The phase 0 spike (`spike/FINDINGS.md`) found two problems on the real robot. This section overrides the rest of the SPEC until they are solved. Sections below still describe the target design.
+The phase 0 spike (`spike/FINDINGS.md`) found problems on the real robot. This section records how the bridge handles them and overrides the rest of the SPEC where they apply. Sections below still describe the target design.
 
-**Motors off.** The robot's battery is defective, so no motor may be used. Real motion over `qi` exists (`QiMotion`), but the real adapter picks its motion class once at connect from `motion.motors_enabled`. With `false`, it uses `QiMotionDisabled`, which contains no code that commands a motor: its motion methods raise `MotorsDisabled` without calling NAOqi, and `tests/qi_double.py` fails on any NAOqi call outside an allowlist.
+**Motors-off setting.** Konrad passed the on-robot motion checks (`restore-motion`, task 7) and runs with `motion.motors_enabled: true`. The motors-off setting stays supported for a robot whose motors must not be used, for example one with a defective battery. The real adapter picks its motion class once at connect from `motion.motors_enabled`. With `false`, it uses `QiMotionDisabled`, which contains no code that commands a motor: its motion methods raise `MotorsDisabled` without calling NAOqi, and `tests/qi_double.py` fails on any NAOqi call outside the motors-off allowlist.
 
-- `motion.motors_enabled` stays `false` on this robot. A real run with `true` refuses to start unless `robot.battery_reliable` is `true`, and after connecting, unless the battery is above `motion.battery_motion_min_pct`. The fake robot works with either value. This part of the section is removed once a new battery is fitted and the on-robot motion checklist (`restore-motion`, task 7) has passed.
-- Startup refuses unless the robot is at rest and Autonomous Life is `disabled`, and it changes nothing itself. Only `naollm init` can disable Autonomous Life, after the operator confirms. A poll every 5 s reports a later wake-up with an alert and STOPPED, and sends no motor command.
-- With motors off, §6.3, §6.4, §10.3 and §18.3 skip every motion step and keep the rest. The gate rejects motion tools with the reason `motors_off`, the LLM is neither offered them nor told it can move, and `wake`, `rest`, `posture`, `walk on` and `anim play` refuse.
-- Speech always uses `ALTextToSpeech`, never `ALAnimatedSpeech`. `ALFaceDetection` head tracking is switched off before perception starts.
-- Blocked on this robot until the battery is replaced: behaviors, gestures, dances, keyframe playback, postures, head tracking, `naollm deploy` and `naollm anim preview`. They are implemented and tested against the strict double with motors on.
+- With `true`, a real run refuses to start unless `robot.battery_reliable` is `true`, and after connecting, unless the battery is above `motion.battery_motion_min_pct`. The fake robot works with either value.
+- With `false`, startup refuses unless the robot is at rest and Autonomous Life is `disabled`, and it changes nothing itself. Only `naollm init` can disable Autonomous Life, after the operator confirms. A poll every 5 s reports a later wake-up with an alert and STOPPED, and sends no motor command.
+- With `false`, §6.3, §6.4, §10.3 and §18.3 skip every motion step and keep the rest. The gate rejects motion tools with the reason `motors_off`, the LLM is neither offered them nor told it can move, and `wake`, `rest`, `posture`, `walk on`, `anim play`, `naollm deploy` and `naollm anim preview` refuse.
+- With `false`, speech always uses `ALTextToSpeech`, never `ALAnimatedSpeech`, and `ALFaceDetection` head tracking is switched off before perception starts. `naollm init` runs the reduced step list in §20.1.
 
 **Languages.** `config.example.yaml` configures German and English (§11.1), with the wake phrases `Hallo NAO` and `Hey NAO`. This needs a German language pack on the robot for both TTS and ASR, installed by hand (§20.3); `naollm init` checks it. Measure `audio.wake_threshold` with `ears test`: in the spike, the English phrase scored only 0.43 and 0.44. For a robot without German, the comments in the example say how to switch to English only. A turn whose language has no installed voice runs in `robot.language`.
 
@@ -665,7 +665,7 @@ audio:
   max_utterance_s: 15
   no_speech_timeout_s: 5
 motion:
-  motors_enabled: true       # false on the current robot (see "Interim" above)
+  motors_enabled: true       # false for a robot whose motors must not be used (see "Interim" above)
   walking_enabled: false
   max_turn_deg: 90
   max_step_cm: 30
