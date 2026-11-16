@@ -1,6 +1,6 @@
 ## 1. Preconditions
 
-- [ ] 1.1 Confirm `add-qi-adapter` is archived and the battery is replaced; stop here otherwise
+- [x] 1.1 Confirm `add-qi-adapter` is archived and the battery is replaced; stop here otherwise
 - [ ] 1.2 With the robot seated at rest, compare the battery reading with the charger LED over one charge cycle, and record the result in `spike/FINDINGS.md`
 
 ## 2. Real motion transport
@@ -39,13 +39,13 @@
 ## 6. Docs
 
 - [x] 6.1 Update the README: motor setup, `naollm deploy`, the e-stop limitation, and the robot-on-the-floor rule
-- [ ] 6.2 Update the SPEC "Interim" section: remove the motors-off part once task 7 has passed, and keep the motors-off setting documented
+- [x] 6.2 Update the SPEC "Interim" section: remove the motors-off part once task 7 has passed, and keep the motors-off setting documented
 
 ## 7. On the robot (operator present, robot on the floor on a mat)
 
-- [ ] 7.1 Ask the user to confirm the robot is on a mat in a clear area, with an operator within reach, before any motor command
-- [ ] 7.2 Seated: `wake` and `rest`. Then Stand and Crouch through `posture`
-- [ ] 7.3 Emergency stop from each trigger while standing, during a gesture and during keyframe playback; record whether `killTasksUsingResources` stops the playback
-- [ ] 7.4 Deploy one test behavior with `naollm deploy`, run it, and stop it mid-way with the rear head touch
-- [ ] 7.5 Run `naollm init` with motors on, and record the self-test results and any `ALBasicAwareness` and `ALAnimationPlayer` findings in `spike/FINDINGS.md`
+- [x] 7.1 Ask the user to confirm the robot is on a mat in a clear area, with an operator within reach, before any motor command
+- [x] 7.2 Seated: `wake` and `rest`. Then Stand and Crouch through `posture`
+- [x] 7.3 Emergency stop from each trigger while standing, during a gesture and during keyframe playback; record whether `killTasksUsingResources` stops the playback
+- [x] 7.4 Deploy one test behavior with `naollm deploy`, run it, and stop it mid-way with the rear head touch
+- [x] 7.5 Run `naollm init` with motors on, and record the self-test results and any `ALBasicAwareness` and `ALAnimationPlayer` findings in `spike/FINDINGS.md`
 - [x] 7.6 Set `motion.motors_enabled: true` in `config.example.yaml` (the user turned motors on before 7.1 to 7.5 were recorded)

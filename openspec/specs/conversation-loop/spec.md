@@ -3,15 +3,13 @@
 ## Purpose
 
 Defines one conversation turn from visitor text to spoken answer: how the LLM is called, how tool rounds work, how history is kept, and what the robot says when something fails.
-
 ## Requirements
-
 ### Requirement: OpenAI-compatible endpoint
 The bridge SHALL talk to any endpoint that implements OpenAI-compatible `/v1/chat/completions` with tools, using `llm.base_url`, `llm.api_key`, `llm.model`, `llm.temperature`, `llm.max_tokens` and `llm.timeout_s` from the configuration.
 
 #### Scenario: Ollama defaults
 - **WHEN** the default configuration is used
-- **THEN** requests go to `http://localhost:11434/v1` with model `gemma4:e2b`, temperature 0.4 and at most 200 tokens
+- **THEN** requests go to `http://localhost:11434/v1` with model `gemma4:e4b`, temperature 0.4 and at most 200 tokens
 
 ### Requirement: Request content
 Each request SHALL contain the system prompt for the turn language, the most recent `conversation.history_turns` turns, the new user text and the schemas of the currently enabled tools, with tool choice left to the model.
@@ -83,3 +81,11 @@ Conversation history SHALL be held only in memory, SHALL be cleared after `conve
 #### Scenario: Event-mode log
 - **WHEN** a turn completes in event mode
 - **THEN** the log contains tool names, results and timings but not the user text or answer text
+
+### Requirement: Reasoning is not spoken
+The client SHALL report reasoning text from the endpoint, in `reasoning` or `reasoning_content`, separately from the answer text, and the conversation loop SHALL never speak it or keep it in the history. The client SHALL also report when a tool call starts, the finish reason and the token usage.
+
+#### Scenario: Thinking model
+- **WHEN** the endpoint streams reasoning, then "Sure!", then a `dance` call
+- **THEN** the robot says only "Sure!" and the `dance` call runs
+

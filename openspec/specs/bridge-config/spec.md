@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines how the bridge loads, validates and defaults its YAML configuration, and which privacy settings make it refuse to start at an event.
-
 ## Requirements
-
 ### Requirement: Configuration is loaded from YAML and validated
 The bridge SHALL load its configuration from a YAML file given on the command line and SHALL validate every field before connecting to anything. Unknown keys and values of the wrong type MUST be rejected with a message that names the offending key.
 
@@ -60,3 +58,58 @@ Each entry in `dances` and `gestures` SHALL map a lowercase name to exactly one 
 #### Scenario: Invalid name
 - **WHEN** `dances` contains the key `Macarena Dance`
 - **THEN** loading fails and the error names the key
+
+### Requirement: Motors-off key
+The configuration SHALL accept `motion.motors_enabled` as a boolean with the default `true`.
+
+#### Scenario: Key set
+- **WHEN** the file sets `motion.motors_enabled: false`
+- **THEN** the loaded configuration reports motors disabled
+
+### Requirement: Battery reliability key
+The configuration SHALL accept `robot.battery_reliable` as a boolean with the default `true`. When it is `false`, `get_status` and the status line MUST NOT state a battery value, and battery events MUST only be logged.
+
+#### Scenario: Unreliable battery in status
+- **WHEN** `robot.battery_reliable` is `false` and the LLM calls `get_status`
+- **THEN** the result contains no battery percentage
+
+#### Scenario: Low reading
+- **WHEN** `robot.battery_reliable` is `false` and the robot reports 5 %
+- **THEN** the event is logged and the state does not change
+
+### Requirement: Listen address key
+The configuration SHALL accept an optional `robot.listen_ip`, and MUST reject a value that is not an IP address.
+
+#### Scenario: Invalid address
+- **WHEN** the file sets `robot.listen_ip: laptop`
+- **THEN** loading fails with an error naming the key
+
+### Requirement: No-speech timeout key
+The configuration SHALL accept `audio.no_speech_timeout_s` as a positive number with the default `5.0`.
+
+#### Scenario: Default value
+- **WHEN** the file does not set the key
+- **THEN** the value is 5.0
+
+### Requirement: English-only example
+`config.example.yaml` SHALL be a working configuration for the current robot: English for robot language, wake language and speech input, an English school name, the wake phrase `Hey NAO`, `audio.wake_threshold: 0.4`, motors off and an unreliable battery. Comments MUST state how to restore German. Code defaults MUST NOT change.
+
+#### Scenario: Example loads
+- **WHEN** `config.example.yaml` is loaded
+- **THEN** it is valid and `motion.motors_enabled` is `false`
+
+#### Scenario: Existing German file
+- **WHEN** a configuration sets only `robot.url`
+- **THEN** the language defaults are still German and motors are enabled
+
+### Requirement: Reasoning effort key
+The configuration SHALL accept `llm.reasoning_effort` as `none`, `low`, `medium`, `high` or `null`, with the default `none`. The client SHALL send it as `reasoning_effort` with every chat request, and SHALL leave the field out when it is `null`.
+
+#### Scenario: Thinking off by default
+- **WHEN** the configuration does not set `llm.reasoning_effort`
+- **THEN** every chat request carries `reasoning_effort: "none"`
+
+#### Scenario: Endpoint without the field
+- **WHEN** `llm.reasoning_effort` is `null`
+- **THEN** chat requests contain no `reasoning_effort` field
+
