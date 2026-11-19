@@ -205,6 +205,9 @@ class StubEngine:
         return iter([SimpleNamespace(text=self.text)]), info
 
 
+LONG_S = 3.0  # long enough for language detection
+
+
 def stt(engine, languages=("de", "en"), fallback="de"):
     return SpeechToText(STTConfig(languages=list(languages), fallback_language=fallback), engine=engine)
 
@@ -218,14 +221,14 @@ def test_one_language_is_forced():
 
 def test_detected_language_not_allowed_takes_the_best_allowed():
     engine = StubEngine(language="fr", probabilities=[("fr", 0.6), ("en", 0.3), ("de", 0.05)])
-    result = stt(engine).transcribe(b"pcm")
+    result = stt(engine).transcribe(b"pcm", LONG_S)
     assert result.language == "en"
     assert engine.calls[-1] == (b"pcm", "en")
 
 
 def test_allowed_detection_decodes_once():
     engine = StubEngine(language="de", probabilities=[("de", 0.9), ("en", 0.05)])
-    assert stt(engine).transcribe(b"pcm").language == "de"
+    assert stt(engine).transcribe(b"pcm", LONG_S).language == "de"
     assert engine.calls == [(b"pcm", None)]
 
 
@@ -236,7 +239,44 @@ def test_allowed_detection_decodes_once():
 ])
 def test_unsure_uses_the_fallback(probabilities):
     engine = StubEngine(language="en", probabilities=probabilities)
-    assert stt(engine, fallback="de").transcribe(b"pcm").language == "de"
+    assert stt(engine, fallback="de").transcribe(b"pcm", LONG_S).language == "de"
+
+
+# A short German reply is detected as English ("Ja" -> "Yeah"), so it keeps the conversation's language.
+CONFIDENT_EN = [("en", 0.8), ("de", 0.15)]
+
+
+@pytest.mark.parametrize("current,expected", [
+    ("de", "de"),
+    ("en", "en"),
+    (None, "de"),   # no conversation: the fallback
+    ("fr", "de"),   # not allowed: the fallback
+])
+def test_short_speech_keeps_the_conversation_language(current, expected):
+    engine = StubEngine(text="Ja", probabilities=CONFIDENT_EN)
+    result = stt(engine, fallback="de").transcribe(b"pcm", 0.6, current)
+    assert result == Transcript("Ja", expected)
+    assert engine.calls == [(b"pcm", expected)]  # one decode, no detection
+
+
+def test_longer_speech_switches_the_language():
+    engine = StubEngine(language="en", probabilities=CONFIDENT_EN)
+    assert stt(engine).transcribe(b"pcm", LONG_S, "de").language == "en"
+    assert engine.calls == [(b"pcm", None)]
+
+
+def test_speech_length_defaults_to_the_buffer_length():
+    engine = StubEngine(language="en", probabilities=CONFIDENT_EN)
+    one_second = b"\0" * (RATE * 2)
+    assert stt(engine).transcribe(one_second, current="de").language == "de"
+    assert stt(engine).transcribe(one_second * 2, current="de").language == "en"
+
+
+def test_min_detect_zero_always_detects():
+    engine = StubEngine(language="en", probabilities=CONFIDENT_EN)
+    config = STTConfig(languages=["de", "en"], fallback_language="de", min_detect_s=0)
+    assert SpeechToText(config, engine=engine).transcribe(b"pcm", 0.6, "de").language == "en"
+    assert engine.calls == [(b"pcm", None)]
 
 
 def test_empty_transcript():

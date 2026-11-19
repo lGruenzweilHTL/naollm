@@ -6,12 +6,13 @@ import importlib.util
 from dataclasses import dataclass
 from typing import Any, Iterable, List, Optional, Protocol, Tuple
 
-from naollm.audio.vad import VoiceUnavailable
+from naollm.audio.vad import RATE, VoiceUnavailable
 from naollm.config import STTConfig
 
 # With several allowed languages, a choice this weak or this close counts as unsure.
 MIN_LANGUAGE_PROBABILITY = 0.15
 MIN_LANGUAGE_MARGIN = 0.1
+BYTES_PER_SECOND = RATE * 2  # mono int16
 
 
 @dataclass(frozen=True)
@@ -61,14 +62,26 @@ class SpeechToText:
         except Exception as err:
             raise VoiceUnavailable(f"cannot load the speech model {self.config.model}: {err}") from err
 
-    def transcribe(self, pcm: bytes) -> Transcript:
-        """Blocks; run on a worker thread."""
+    def transcribe(self, pcm: bytes, speech_s: Optional[float] = None,
+                   current: Optional[str] = None) -> Transcript:
+        """Blocks; run on a worker thread.
+
+        `speech_s` is the length of the speech in `pcm`, without the silence after it; None
+        measures the whole buffer. `current` is the conversation's language, or None.
+        """
         self.ensure_loaded()
         assert self._engine is not None
         allowed = self.config.languages
         if len(allowed) == 1:
             segments, _ = self._engine.transcribe(pcm, allowed[0])
             return Transcript(self._join(segments), allowed[0])
+        if speech_s is None:
+            speech_s = len(pcm) / BYTES_PER_SECOND
+        if speech_s < self.config.min_detect_s:
+            # Too short to detect: "Ja" comes out as English "Yeah".
+            language = current if current in allowed else self.config.fallback_language
+            segments, _ = self._engine.transcribe(pcm, language)
+            return Transcript(self._join(segments), language)
         segments, info = self._engine.transcribe(pcm, None)
         language = self.choose_language(getattr(info, "all_language_probs", None))
         if language != getattr(info, "language", None):

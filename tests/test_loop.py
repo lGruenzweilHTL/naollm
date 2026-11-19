@@ -219,6 +219,20 @@ def test_idle_reset(bridge):
     assert users == ["zwei"]
 
 
+def test_conversation_language_is_the_last_turn_until_the_history_resets(bridge):
+    client = ScriptedClient([["Ok."]], repeat_last=True)
+    loop = ConversationLoop(bridge, client)
+    assert loop.current_language(now=1000.0) is None
+    run(loop, "Hello", "en", now=1000.0)
+    assert loop.current_language(now=1030.0) == "en"
+    run(loop, "Hallo", "de", now=1030.0)
+    assert loop.current_language(now=1060.0) == "de"
+    assert loop.current_language(now=1091.0) is None
+    run(loop, "Hi", "en", now=2000.0)
+    loop.reset()
+    assert loop.current_language(now=2001.0) is None
+
+
 def test_history_kept_within_idle_window(bridge):
     client = ScriptedClient([["Ok."]], repeat_last=True)
     loop = ConversationLoop(bridge, client)

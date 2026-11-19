@@ -44,7 +44,7 @@ class STT:
     def ensure_loaded(self):
         pass
 
-    def transcribe(self, pcm):
+    def transcribe(self, pcm, speech_s=None, current=None):
         return SimpleNamespace(text="Can you dance?", language="en")
 
 

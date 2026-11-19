@@ -42,12 +42,14 @@ class StubSTT:
     def __init__(self, text="Hello robot", language="en", error=None, gate=None):
         self.text, self.language, self.error, self.gate = text, language, error, gate
         self.seen = []
+        self.hints = []  # (speech_s, current language) per call
 
     def ensure_loaded(self):
         pass
 
-    def transcribe(self, pcm):
+    def transcribe(self, pcm, speech_s=None, current=None):
         self.seen.append(len(pcm))
+        self.hints.append((speech_s, current))
         if self.gate:
             self.gate.wait(5)
         if self.error:
@@ -280,6 +282,19 @@ def test_turn_language_comes_from_the_transcript(off_robot):
         await w.listener.start("touch")
     w = world_run(off_robot, scenario, config=config, stt=StubSTT(language="en"))
     assert "in English" in w.client.requests[0]["messages"][0]["content"]
+
+
+def test_speech_to_text_gets_the_speech_length_and_the_conversation_language(off_robot):
+    config = make_config(motion=OFF, audio=AUDIO)  # de, en
+    async def scenario(w):
+        for _ in range(2):
+            speak_into(off_robot)
+            await w.listener.start("touch")
+    w = world_run(off_robot, scenario, config=config, stt=StubSTT(language="de"),
+                  script=[["Hallo."], ["Gut."]])
+    (first_s, first_lang), (_, second_lang) = w.stt.hints
+    assert 0.5 <= first_s < 1.0  # speech only, without the silence after it
+    assert first_lang is None and second_lang == "de"
 
 
 # -- wake word rules -------------------------------------------------------

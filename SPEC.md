@@ -654,6 +654,7 @@ stt:
   model: small
   languages: [de, en]
   fallback_language: de
+  min_detect_s: 1.2        # shorter speech keeps the conversation's language
 audio:
   source: robot              # robot | robot_recorder_fallback
   wake_words: ["Hallo NAO", "Hey NAO"]

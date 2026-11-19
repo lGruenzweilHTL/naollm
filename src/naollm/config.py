@@ -75,6 +75,9 @@ class STTConfig(_Strict):
     model: str = "small"
     languages: List[Literal["de", "en"]] = Field(default_factory=lambda: ["de", "en"])
     fallback_language: Literal["de", "en"] = "de"
+    # Below this much speech, detection is unreliable ("Ja" comes out as English
+    # "Yeah"), so the turn keeps the conversation's language. 0 always detects.
+    min_detect_s: float = Field(1.2, ge=0.0)
 
 
 class AudioConfig(_Strict):

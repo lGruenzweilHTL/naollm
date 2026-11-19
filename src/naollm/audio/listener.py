@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from naollm.audio.stt import SpeechToText, check_voice_extra
 from naollm.audio.vad import End, SpeechTest, UtteranceDetector, VoiceUnavailable, webrtc_speech_test
@@ -142,14 +142,17 @@ class Listener:
     async def _run(self) -> None:
         b = self.bridge
         try:
-            audio = await self._listen()
-            if audio is None:
+            heard = await self._listen()
+            if heard is None:
                 return
+            audio, speech_s = heard
+            heard = None  # noqa: F841  `audio` must stay the only copy, cleared below
             if not b.state.transition_from(State.LISTENING, State.THINKING):
                 return
             try:
-                assert self.stt is not None
-                transcript = await asyncio.to_thread(self.stt.transcribe, audio)
+                assert self.stt is not None and self.conversation is not None
+                transcript = await asyncio.to_thread(self.stt.transcribe, audio, speech_s,
+                                                     self.conversation.current_language())
             except Exception as err:
                 b.log.log("error", f"speech to text failed: {err!r}")
                 return
@@ -170,8 +173,8 @@ class Listener:
             b.state.transition_from(State.THINKING, State.IDLE)
             b.touch()
 
-    async def _listen(self) -> Optional[bytes]:
-        """The audio of one utterance, or None. The stream is stopped and the buffer gone on every path."""
+    async def _listen(self) -> Optional[Tuple[bytes, float]]:
+        """The audio of one utterance and its length of speech, or None. The stream is stopped and the buffer gone on every path."""
         b = self.bridge
         cfg = b.config.audio
         audio = b.robot.audio
@@ -214,7 +217,7 @@ class Listener:
                 b.log.log("listen", "utterance too short: ignored")
                 return None
             b.log.log("listen", f"utterance ended: {detector.end.value}", seconds=round(detector.speech_s, 1))
-            return detector.audio
+            return detector.audio, detector.speech_s
         finally:
             self._capture = None
             detector.clear()

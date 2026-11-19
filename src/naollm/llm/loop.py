@@ -87,6 +87,7 @@ class ConversationLoop:
         self.speaker = Speaker(bridge)
         self.history: List[Tuple[str, str]] = []
         self.last_turn_end: Optional[float] = None
+        self.language: Optional[str] = None  # the last turn's language, until the history resets
         self.requests: List[Dict[str, Any]] = []  # last turn's requests, for tests and debugging
         self._task: Optional[asyncio.Task] = None
 
@@ -94,11 +95,17 @@ class ConversationLoop:
     def reset(self) -> None:
         self.history.clear()
         self.last_turn_end = None
+        self.language = None
 
     def _expire_history(self, now: float) -> None:
         cfg = self.bridge.config.conversation
         if self.last_turn_end is not None and now - self.last_turn_end > cfg.idle_reset_s:
             self.reset()
+
+    def current_language(self, now: Optional[float] = None) -> Optional[str]:
+        """The conversation's language, or None when no conversation is going on."""
+        self._expire_history(time.monotonic() if now is None else now)
+        return self.language
 
     def _messages(self, user_text: str, lang: str) -> List[Dict[str, Any]]:
         cfg = self.bridge.config.conversation
@@ -138,7 +145,8 @@ class ConversationLoop:
                        now: Optional[float] = None, prepared: bool = False) -> TurnResult:
         """`prepared`: the listener has already entered THINKING for this turn."""
         bridge = self.bridge
-        lang = bridge.turn_language(lang or bridge.language)
+        spoken = lang or bridge.language
+        lang = bridge.turn_language(spoken)
         started = time.monotonic()
         self._expire_history(time.monotonic() if now is None else now)
         allowed = (State.IDLE, State.LISTENING, State.THINKING) if prepared else (State.IDLE, State.LISTENING)
@@ -148,6 +156,7 @@ class ConversationLoop:
         await asyncio.to_thread(bridge.before_turn)
         bridge.state.transition(State.THINKING)
         bridge.log.log("turn", "turn started", text=text, lang=lang)
+        self.language = spoken  # the visitor's language, even when the turn falls back to robot.language
         try:
             await asyncio.to_thread(bridge.robot.speech.set_language, TTS_LANGUAGE[lang])
         except Exception as err:

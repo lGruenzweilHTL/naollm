@@ -31,6 +31,7 @@ stt:
   model: small               # drop to base if turns are slow on this laptop
   languages: [de, en]
   fallback_language: de     # short utterances are often misdetected; German is the event's main language
+  min_detect_s: 1.2         # shorter speech keeps the conversation's language (fallback at the start)
 audio:
   source: robot              # robot | robot_recorder_fallback
   wake_words: ["Hallo NAO", "Hey NAO"]
