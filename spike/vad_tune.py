@@ -15,7 +15,9 @@ max_utterance_s and no_speech_timeout_s come from the config and are not swept.
 Where the speech really is comes from Whisper word timestamps on the whole raw
 clip (cached in vad_ref.json next to clips.yaml). Words before the first or
 after the last word of the read sentence are dropped, so a hallucinated
-"Thank you." in the silence does not move the end. To fix a bad reference,
+"Thank you." in the silence does not move the end. Whisper often stretches
+the first word back to 0.00 s, so the start is the first frame shortly before
+that word's end that is clearly above the clip's noise floor. To fix a bad reference,
 put speech_start and speech_end (seconds) on the clip in clips.yaml.
 
 Outcome per clip and setting (a frame is 30 ms; tolerance 0.1 s):
@@ -75,7 +77,11 @@ from naollm.config import load_config  # noqa: E402
 from stt_bench import edit_distance, normalise  # noqa: E402
 
 FRAME_S = FRAME_MS / 1000
+FRAME_SAMPLES = FRAME_BYTES // 2
 TOLERANCE_S = 0.1
+# Reference onset of the first word (energy_onset).
+ONSET_WINDOW_S = 0.8
+ONSET_DB = 8.0
 ERRORS = ("early", "head", "miss", "short", "long", "false")
 DUMMY_FRAME = bytes(FRAME_BYTES)
 
@@ -187,8 +193,29 @@ def add_reference(clips: List[Clip], model_name: str, cache_path: Path) -> None:
             continue
         words = trim_to_sentence([tuple(w) for w in cache[f"{model_name}:{clip.file.name}"]], clip.text)
         if words:
-            clip.speech = (words[0][1], words[-1][2])
+            clip.speech = (energy_onset(clip.pcm, words[0][1], words[0][2]), words[-1][2])
             clip.ref_text = " ".join(w[0] for w in words)
+
+
+def energy_onset(pcm: bytes, word_start: float, word_end: float) -> float:
+    """Where the first word really starts.
+
+    Whisper often stretches the first word back over the leading silence, to
+    0.00 s, so its start says nothing. The onset is the first frame within
+    ONSET_WINDOW_S before the first word's end that is ONSET_DB above the clip's
+    noise floor (its 10th percentile frame level).
+    """
+    import numpy as np
+
+    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float64)
+    n = len(audio) // FRAME_SAMPLES
+    frames = audio[:n * FRAME_SAMPLES].reshape(n, FRAME_SAMPLES)
+    level = 10 * np.log10((frames ** 2).mean(axis=1) + 1.0)
+    floor = float(np.percentile(level, 10))
+    first = max(int(word_start / FRAME_S), int((word_end - ONSET_WINDOW_S) / FRAME_S), 0)
+    last = min(int(word_end / FRAME_S) + 1, n)
+    loud = [i for i in range(first, last) if level[i] > floor + ONSET_DB]
+    return loud[0] * FRAME_S if loud else word_start
 
 
 # -- replay --------------------------------------------------------------

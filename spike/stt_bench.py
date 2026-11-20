@@ -4,8 +4,8 @@
 For each model: load time, word error rate (WER) against the sentence that was
 read, sentences right, and latency per clip (median, p90, max) with the
 real-time factor (RTF: latency / clip length; below 1 is faster than speech).
-Transcription goes through `SpeechToText`, as in a voice turn: CPU, int8,
-beam 1, the language rules from the config.
+Transcription goes through `SpeechToText`, as in a voice turn: stt.device
+from the config (CPU int8 or CUDA float16), beam 1, the language rules from the config.
 
 With --llm, each clip that has an eval expectation goes to the LLM once per
 distinct transcript, judged as in `naollm eval`. The "reference" row sends the
@@ -41,6 +41,7 @@ Usage:
   .venv/bin/python spike/stt_bench.py spike/clips --tag far --llm --run "gemma4:e2b, reasoning off"
   .venv/bin/python spike/stt_bench.py spike/clips/raw --models base,small,large-v3-turbo
   .venv/bin/python spike/stt_bench.py spike/clips/raw --aggressiveness 3 --silence 0.6
+  .venv/bin/python spike/stt_bench.py spike/clips/raw --models small --save-cuts spike/clips/cut
 """
 
 from __future__ import annotations
@@ -68,7 +69,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from naollm.audio.listener import MIN_UTTERANCE_S  # noqa: E402
-from naollm.audio.stt import SpeechToText  # noqa: E402
+from naollm.audio.stt import COMPUTE_TYPE, SpeechToText  # noqa: E402
 from naollm.audio.vad import (  # noqa: E402
     PRE_ROLL_FRAMES, SPEECH_START_FRAMES, VAD_AGGRESSIVENESS, End, UtteranceDetector, webrtc_speech_test,
 )
@@ -121,6 +122,7 @@ class Clip:
     tag: str = ""
     profile: Optional[str] = None
     expect: Optional[Dict[str, Any]] = None
+    speech_s: Optional[float] = None  # speech without the silence after it, as the listener passes it
 
 
 @dataclass
@@ -152,8 +154,9 @@ class VadSetting:
                 f"start {self.start_frames}, pre-roll {self.pre_roll_frames}")
 
 
-def cut_raw(pcm: bytes, vad: VadSetting, audio_cfg) -> Tuple[Optional[bytes], str]:
-    """The utterance a voice turn would take from a raw stream, or None and why it would drop it.
+def cut_raw(pcm: bytes, vad: VadSetting, audio_cfg) -> Tuple[Optional[bytes], str, float]:
+    """The utterance a voice turn would take from a raw stream and its speech length, or None and why
+    it would drop it.
 
     A raw clip stops where the reader pressed Enter. When the VAD has not ended by
     then, the utterance so far is taken, as more silence would have ended it.
@@ -162,10 +165,10 @@ def cut_raw(pcm: bytes, vad: VadSetting, audio_cfg) -> Tuple[Optional[bytes], st
                                  audio_cfg.no_speech_timeout_s, vad.start_frames, vad.pre_roll_frames)
     detector.feed(pcm)
     if detector.end == End.NO_SPEECH or not detector.audio:
-        return None, "no speech found"
+        return None, "no speech found", 0.0
     if detector.speech_s < MIN_UTTERANCE_S:
-        return None, f"utterance {detector.speech_s:.2f} s, shorter than {MIN_UTTERANCE_S} s"
-    return detector.audio, ""
+        return None, f"utterance {detector.speech_s:.2f} s, shorter than {MIN_UTTERANCE_S} s", detector.speech_s
+    return detector.audio, "", detector.speech_s
 
 
 def read_wav(path: Path) -> bytes:
@@ -189,8 +192,9 @@ def load_clips(folders: List[Path], tag: Optional[str], vad: VadSetting, audio_c
                 continue
             path = folder / item["file"]
             pcm = read_wav(path)
+            speech_s = item.get("speech_s")
             if item.get("raw"):
-                cut, why = cut_raw(pcm, vad, audio_cfg)
+                cut, why, speech_s = cut_raw(pcm, vad, audio_cfg)
                 if not item.get("text"):  # noise only: any utterance is a false start
                     if cut is not None:
                         dropped.append((path.name, "noise only, but the VAD started an utterance"))
@@ -200,7 +204,7 @@ def load_clips(folders: List[Path], tag: Optional[str], vad: VadSetting, audio_c
                     continue
                 pcm = cut
             clips.append(Clip(path, item["text"], item.get("lang", "en"), len(pcm) / 2 / RATE, pcm,
-                              item.get("tag", ""), item.get("profile"), item.get("expect")))
+                              item.get("tag", ""), item.get("profile"), item.get("expect"), speech_s))
     return clips, dropped
 
 
@@ -208,10 +212,10 @@ def load_clips(folders: List[Path], tag: Optional[str], vad: VadSetting, audio_c
 class BenchEngine:
     """`WhisperEngine` with a choice of beam size and thread count."""
 
-    def __init__(self, name: str, beam: int, threads: int) -> None:
+    def __init__(self, name: str, beam: int, threads: int, device: str = "cpu") -> None:
         from faster_whisper import WhisperModel
 
-        self._model = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads)
+        self._model = WhisperModel(name, device=device, compute_type=COMPUTE_TYPE[device], cpu_threads=threads)
         self.beam = beam
 
     def transcribe(self, pcm: bytes, language: Optional[str]):
@@ -235,13 +239,15 @@ def bench_model(name: str, clips: List[Clip], stt_cfg, beam: int, threads: int, 
     if time.monotonic() - t > 2:
         print(f"  downloaded in {time.monotonic() - t:.0f} s")
     t = time.monotonic()
-    engine = BenchEngine(name, beam, threads)
+    engine = BenchEngine(name, beam, threads, stt_cfg.device)
     run.load_s = time.monotonic() - t
     stt = SpeechToText(stt_cfg.model_copy(update={"model": name}), engine)
     stt.transcribe(clips[0].pcm)  # warm-up; not counted
     for clip in clips:
         t = time.monotonic()
-        text = stt.transcribe(clip.pcm).text
+        # As in a voice turn: the speech length decides whether the language is detected, and
+        # short speech keeps the conversation's language, taken to be the clip's.
+        text = stt.transcribe(clip.pcm, clip.speech_s, clip.lang).text
         latency = time.monotonic() - t
         ref = normalise(clip.text)
         errors = edit_distance(ref, normalise(text))
@@ -455,6 +461,33 @@ def write_json(path: Path, runs: List[ModelRun], outcomes: Optional[Dict]) -> No
     print(f"wrote {path}")
 
 
+def save_cuts(folder: Path, clips: List[Clip], vad: VadSetting) -> None:
+    """Writes the clips as benchmarked, with a manifest that stt_bench reads as cut clips."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if any(folder.resolve() == c.file.parent.resolve() for c in clips):
+        raise SystemExit(f"--save-cuts {folder} is a source folder; pick another so no clip is overwritten")
+    manifest = []
+    for clip in clips:
+        with wave.open(str(folder / clip.file.name), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(clip.pcm)
+        item: Dict[str, Any] = {"file": clip.file.name, "text": clip.text, "lang": clip.lang, "tag": clip.tag,
+                                "clip_s": round(clip.seconds, 2), "cut_from": str(clip.file),
+                                "vad": vad.describe()}
+        if clip.speech_s is not None:
+            item["speech_s"] = round(clip.speech_s, 2)
+        if clip.profile is not None:
+            item["profile"] = clip.profile
+        if clip.expect is not None:
+            item["expect"] = clip.expect
+        manifest.append(item)
+    (folder / "clips.yaml").write_text(yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False),
+                                       encoding="utf-8")
+    print(f"wrote {len(manifest)} cut clips to {folder}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("clips", nargs="*", type=Path, default=[ROOT / "spike/clips"],
@@ -475,6 +508,9 @@ def main() -> int:
     ap.add_argument("--silence", type=float, help="raw clips: seconds of silence that end; default audio.vad_silence_s")
     ap.add_argument("--start", type=int, help=f"raw clips: speech frames that start; default {SPEECH_START_FRAMES}")
     ap.add_argument("--pre-roll", type=int, help=f"raw clips: frames kept before the start; default {PRE_ROLL_FRAMES}")
+    ap.add_argument("--save-cuts", type=Path, metavar="DIR",
+                    help="write every benchmarked clip (raw clips as cut) to DIR as WAV with a clips.yaml, "
+                         "to listen to or to bench again; the source clips stay as they are")
     args = ap.parse_args()
 
     config = load_config(args.config)
@@ -485,6 +521,8 @@ def main() -> int:
         SPEECH_START_FRAMES if args.start is None else args.start,
         PRE_ROLL_FRAMES if args.pre_roll is None else args.pre_roll)
     clips, dropped = load_clips(args.clips, args.tag, vad, config.audio)
+    if args.save_cuts:
+        save_cuts(args.save_cuts, clips, vad)
     if dropped:
         print(f"raw clips cut with {vad.describe()}: {len(dropped)} dropped, not in the table below")
         for name, why in dropped:
