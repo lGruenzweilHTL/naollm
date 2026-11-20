@@ -73,6 +73,8 @@ class ConversationConfig(_Strict):
 class STTConfig(_Strict):
     engine: Literal["faster-whisper"] = "faster-whisper"
     model: str = "small"
+    # cuda needs an NVIDIA GPU with CUDA 12 and cuDNN 9 on the machine that runs the bridge.
+    device: Literal["cpu", "cuda"] = "cpu"
     languages: List[Literal["de", "en"]] = Field(default_factory=lambda: ["de", "en"])
     fallback_language: Literal["de", "en"] = "de"
     # Below this much speech, detection is unreliable ("Ja" comes out as English

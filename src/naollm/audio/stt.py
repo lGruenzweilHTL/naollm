@@ -25,11 +25,15 @@ class Engine(Protocol):
     def transcribe(self, pcm: bytes, language: Optional[str]) -> Tuple[Iterable[Any], Any]: ...
 
 
+# int8 is fastest on a CPU; a GPU runs float16 natively.
+COMPUTE_TYPE = {"cpu": "int8", "cuda": "float16"}
+
+
 class WhisperEngine:
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, device: str = "cpu") -> None:
         from faster_whisper import WhisperModel
 
-        self._model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        self._model = WhisperModel(model_name, device=device, compute_type=COMPUTE_TYPE[device])
 
     def transcribe(self, pcm: bytes, language: Optional[str]) -> Tuple[Iterable[Any], Any]:
         import numpy as np
@@ -54,13 +58,16 @@ class SpeechToText:
         if self._engine is not None:
             return
         try:
-            self._engine = WhisperEngine(self.config.model)
+            self._engine = WhisperEngine(self.config.model, self.config.device)
         except ImportError as err:
             raise VoiceUnavailable(
                 f"speech to text needs faster-whisper ({err}). Install the voice extra: pip install 'naollm[voice]'"
             ) from None
         except Exception as err:
-            raise VoiceUnavailable(f"cannot load the speech model {self.config.model}: {err}") from err
+            hint = " Check the GPU driver, CUDA 12 and cuDNN 9, or set stt.device: cpu." \
+                if self.config.device == "cuda" else ""
+            raise VoiceUnavailable(
+                f"cannot load the speech model {self.config.model} on {self.config.device}: {err}.{hint}") from err
 
     def transcribe(self, pcm: bytes, speech_s: Optional[float] = None,
                    current: Optional[str] = None) -> Transcript:

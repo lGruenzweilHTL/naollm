@@ -297,3 +297,29 @@ def test_model_failure_is_reported(monkeypatch):
     monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=Broken))
     with pytest.raises(VoiceUnavailable, match="no disk"):
         SpeechToText(STTConfig()).ensure_loaded()
+
+
+@pytest.mark.parametrize("device, compute_type", [("cpu", "int8"), ("cuda", "float16")])
+def test_device_picks_the_compute_type(monkeypatch, device, compute_type):
+    loaded = {}
+
+    class Model:
+        def __init__(self, name, **kwargs):
+            loaded.update(kwargs, name=name)
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=Model))
+    SpeechToText(STTConfig(model="large-v3-turbo", device=device)).ensure_loaded()
+    assert loaded == {"name": "large-v3-turbo", "device": device, "compute_type": compute_type}
+
+
+def test_gpu_failure_names_the_fallback(monkeypatch):
+    class NoGpu:
+        def __init__(self, *a, **k):
+            raise RuntimeError("CUDA driver version is insufficient")
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=NoGpu))
+    with pytest.raises(VoiceUnavailable, match="stt.device: cpu"):
+        SpeechToText(STTConfig(device="cuda")).ensure_loaded()
+
+
+def test_unknown_device_is_rejected():
+    with pytest.raises(ValueError, match="device"):
+        STTConfig(device="mps")

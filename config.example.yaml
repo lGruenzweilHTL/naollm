@@ -29,6 +29,7 @@ conversation:
 stt:
   engine: faster-whisper
   model: small               # drop to base if turns are slow on this laptop
+  device: cpu                # cuda: NVIDIA GPU (CUDA 12, cuDNN 9); then large-v3-turbo is worth trying
   languages: [de, en]
   fallback_language: de     # short utterances are often misdetected; German is the event's main language
   min_detect_s: 1.2         # shorter speech keeps the conversation's language (fallback at the start)
