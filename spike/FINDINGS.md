@@ -229,3 +229,55 @@ Recorded 2026-11-16 from the user's report. The checks ran on Konrad while the d
 - 7.1 to 7.5 confirmed working by the user: setup on a mat with an operator in reach, `wake` and `rest`, Stand and Crouch through `posture`, emergency stop, a deployed behavior, and `naollm init` with motors on.
 - Emergency stop confirmed working, including during keyframe playback, so `killTasksUsingResources` stops the playback.
 - No `ALBasicAwareness` or `ALAnimationPlayer` problems were reported.
+
+## VAD tuning and Whisper choice (2026-11-19/20)
+
+Offline, on 183 raw robot-mic clips recorded on Konrad by one speaker (`lg`) on 2026-11-19:
+
+| Tag | Clips | Notes |
+| --- | --- | --- |
+| `50cm-clear` | 25 German, 13 English | |
+| `2m-clear` | 60 German, 54 English | window open: passing cars in the background |
+| `close-clear` | 25 German | quieter than the 2 m clips (median peak 1756 against 2150) |
+| `no-audio` | 6 noise only | no speech, but chair squeaks, bottles and similar on purpose |
+
+### VAD
+
+`spike/vad_tune.py` swept aggressiveness 0 to 3, silence 0.5 to 1.0 s, start 3 to 8 frames and pre-roll 10 to 30 frames. The reference is `large-v3-turbo` word timestamps.
+
+| Setting (agg / silence / start / pre-roll) | ok | short | early | false starts | median wait |
+| --- | --- | --- | --- | --- | --- |
+| before: 2 / 0.8 s / 3 / 10 | 153 | 18 | 2 | 3 of 6 | 0.91 s |
+| **now: 1 / 0.7 s / 6 / 20** | 167 | 7 | 3 | 4 of 6 | 0.83 s |
+| 0 / 0.6 s / 6 / 25 | 169 | 5 | 3 | 4 of 6 | 0.77 s |
+
+- **A fresh webrtcvad marks the first 3 to 5 frames of a stream as speech**, whatever the audio. With start 3 the detector started on that, silence ended it before the reader spoke, and the listener dropped the turn as too short. 11 of the 18 old drops were this. Start 6 frames is past it.
+- Whisper stretches the first word of a clip back to 0.00 s, so its word start is useless as the reference. `vad_tune.py` now takes the first frame 8 dB above the noise floor within 0.8 s before the first word's end. Before this fix the sweep reported 121 lost first words that were not lost.
+- Aggressiveness 0 scores about the same as 1 here, but these clips have no chatter or music. 1 was picked as the middle ground for a noisy hall; this is not measured.
+- No setting rejects the noise-only clips: every one starts on 3 or 4 of the 6. The VAD alone cannot tell a squeaking chair from speech.
+- The remaining drops are one-word answers ("Ja", "Yes", "Genau", "Okay, super") with under 0.5 s of speech. The 0.5 s minimum is in the voice-turn spec ("Short or empty input is ignored"), so changing it needs a proposal.
+- Prompts with a deliberate pause ("Kannst du mir sagen ... wie spät es ist?") end at the pause. Silence 1.0 s keeps them, at 0.3 s more wait on every turn.
+
+The new values are in `src/naollm/audio/vad.py` and `audio.vad_silence_s` in `config.yaml`. The cut clips are in `spike/clips/cut/` (`stt_bench.py --save-cuts`); the raw clips are unchanged.
+
+### Whisper on the laptop
+
+i5-1135G7 (4 cores), CPU int8, beam 1, 170 cut clips (463 s of audio). First run; the bench then passed the whole buffer as the speech length, so short German clips went through language detection instead of the conversation language:
+
+| Model | WER | right | median latency |
+| --- | --- | --- | --- |
+| base | 24.3 % | 88/170 | 0.83 s |
+| **small** | 11.8 % | 116/170 | 2.47 s |
+| medium | 8.0 % | 138/170 | 6.67 s |
+| large-v3-turbo | 6.0 % | 142/170 | 11.17 s |
+| gemma4:e4b, audio input | 18.2 % | 115/170 | 3.42 s |
+
+- Latency hardly depends on the clip length: Whisper encodes a 30 s window every time.
+- 8 threads is slower than the default (small 3.05 s). Beam 5 gains nothing (11.7 %) and is slower.
+- German is the weak side: small 17 % WER in German, 4 % in English; `close-clear` 35 %. Short German words came out as English ("Genau" as "Get in the hole").
+- **The laptop stays on `small`.** medium and turbo are too slow on this CPU, before the LLM's own 9 s.
+- `stt_bench.py` now passes the speech length and the clip's language as the conversation language, as the listener does. That run was stopped before the end; repeat it on the event PC.
+
+### Event PC
+
+The event PC runs Windows, and `qi` 3.1.5 has no Windows wheel (Linux x86_64 and macOS arm64 only). The plan is the Ubuntu 24.04.4 desktop live USB with Ventoy persistence, with the whole bridge, Ollama and Whisper on the PC. `stt.device: cuda` (new) runs Whisper on an NVIDIA GPU with float16; then `large-v3-turbo` is the candidate. Bench it there on `spike/clips/cut/`.

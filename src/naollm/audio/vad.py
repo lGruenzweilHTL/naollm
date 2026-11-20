@@ -11,12 +11,14 @@ FRAME_MS = 30
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
 FRAME_BYTES = FRAME_SAMPLES * 2
 
-# Set on the robot; fan noise near the mic is the main risk (design D7).
-VAD_AGGRESSIVENESS = 2
-# Consecutive speech frames that count as the start of speech. A single noisy frame does not.
-SPEECH_START_FRAMES = 3
+# Tuned with spike/vad_tune.py on 183 raw robot-mic clips (2026-11-19; spike/FINDINGS.md).
+# 1 keeps quiet speech at 2 m that 2 and 3 lose, and is less eager than 0 in a noisy hall.
+VAD_AGGRESSIVENESS = 1
+# Consecutive speech frames that count as the start of speech. A fresh webrtcvad marks
+# the first 3 to 5 frames of every stream as speech, so fewer than 6 starts on that.
+SPEECH_START_FRAMES = 6
 # Audio kept from before the start of speech, so the first syllable is not cut off.
-PRE_ROLL_FRAMES = 10
+PRE_ROLL_FRAMES = 20
 
 
 class VoiceUnavailable(RuntimeError):

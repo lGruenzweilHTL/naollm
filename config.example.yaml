@@ -40,7 +40,7 @@ audio:
   wake_threshold: 0.4        # English "Hey NAO" scored 0.43 and 0.44; measure German with `ears test` and set it here
   front_head_tap: true
   operator_key: space        # only when the admin prompt line is empty
-  vad_silence_s: 0.8
+  vad_silence_s: 0.7         # tuned with spike/vad_tune.py; 1.0 keeps pauses mid-sentence but waits longer
   max_utterance_s: 15
   no_speech_timeout_s: 5     # stop listening when nobody speaks after a trigger
 motion:

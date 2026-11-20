@@ -107,16 +107,16 @@ def test_a_click_is_not_speech():
 
 def test_pre_roll_keeps_the_start():
     d = detector()
-    feed_all(d, silence(1.0) + tone(1.0) + silence(1.0))
-    assert len(d.audio) < len(silence(2.1))
-    assert d.audio[:FRAME_BYTES] == b"\0" * FRAME_BYTES  # a little lead-in
+    feed_all(d, silence(2.0) + tone(1.0) + silence(1.0))
+    lead = len(d.audio) - len(d.audio.lstrip(b"\0"))
+    assert 0 < lead < len(silence(2.0))  # a little lead-in, not all the silence before
     assert any(d.audio)
 
 
 def test_pre_roll_length_can_be_set():
     lead = {}
     for frames in (2, 4, 10):
-        d = UtteranceDetector(energy_test, 0.8, 15.0, 5.0, pre_roll_frames=frames)
+        d = UtteranceDetector(energy_test, 0.8, 15.0, 5.0, start_frames=3, pre_roll_frames=frames)
         feed_all(d, silence(1.0) + tone(1.0) + silence(1.0))
         lead[frames] = len(d.audio) - len(d.audio.lstrip(b"\0"))
     assert lead[10] - lead[4] == 6 * FRAME_BYTES
