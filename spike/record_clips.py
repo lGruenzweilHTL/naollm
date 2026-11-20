@@ -56,7 +56,8 @@ from naollm.audio.vad import FRAME_BYTES, FRAME_MS, RATE, End, UtteranceDetector
 from naollm.audio.listener import MIN_UTTERANCE_S  # noqa: E402
 from naollm.config import load_config  # noqa: E402
 
-DEFAULT_PROMPTS = [ROOT / "tests/eval/tool_calls.yaml", ROOT / "spike/clip_prompts.yaml"]
+DEFAULT_PROMPTS = [ROOT / "tests/eval/tool_calls.yaml", ROOT / "spike/clip_prompts_de.yaml",
+                   ROOT / "spike/clip_prompts_en.yaml"]
 # A stream that delivers nothing for this long past the no-speech timeout is dead.
 WATCHDOG_MARGIN_S = 2.0
 CHUNK_BYTES = 1365 * 2  # what the robot sends per callback
@@ -261,7 +262,8 @@ def main() -> int:
     ap.add_argument("--device", help="laptop source: ALSA device for arecord, e.g. plughw:0,7")
     ap.add_argument("--prompts", action="append", type=Path,
                     help="YAML list of {prompt, lang?, profile?, expect?}; repeatable. "
-                         "Default: tests/eval/tool_calls.yaml and spike/clip_prompts.yaml")
+                         "Default: tests/eval/tool_calls.yaml, spike/clip_prompts_de.yaml and "
+                         "spike/clip_prompts_en.yaml")
     ap.add_argument("--raw", action="store_true",
                     help="save the whole stream from the beep until Enter, not the cut utterance "
                          "(for spike/vad_tune.py)")

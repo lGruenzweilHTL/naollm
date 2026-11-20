@@ -1,0 +1,68 @@
+# German free-talk sentences for spike/record_clips.py, on top of the German eval
+# cases in tests/eval/tool_calls.yaml (a case without lang is German). No expect:
+# stt_bench.py scores these on word error rate only. They add what VAD and STT
+# tuning needs.
+
+# Counterparts of the English sentences above.
+- lang: de
+  prompt: "Hallo Roboter, wie heißt du?"
+- lang: de
+  prompt: "Erzähl mir einen Witz über Roboter."
+- lang: de
+  prompt: "Wer hat dich gebaut, und wie lange hat das gedauert?"
+- lang: de
+  prompt: "Bist du gerne ein Roboter an unserer Schule?"
+- lang: de
+  prompt: "Was ist zwölf mal sieben?"
+- lang: de
+  prompt: "Wie viele Motoren und Sensoren hast du in deinem Körper?"
+- lang: de
+  prompt: "Kannst du in einem Satz erklären, was künstliche Intelligenz ist?"
+- lang: de
+  prompt: "Was ist deine Lieblingsfarbe?"
+- lang: de
+  prompt: "Danke, tschüss!"
+
+# Short replies: below stt.min_detect_s, so the turn language must come from
+# the conversation, not from detection.
+- lang: de
+  prompt: "Ja."
+- lang: de
+  prompt: "Nein, danke."
+- lang: de
+  prompt: "Genau."
+- lang: de
+  prompt: "Nochmal!"
+- lang: de
+  prompt: "Okay, super."
+
+# Soft or short first sounds: the VAD start cut must not drop the first word.
+- lang: de
+  prompt: "Hey, schau mal her!"
+
+# A pause in the middle: audio.vad_silence_s must not end the turn here.
+# Read the dots as a pause of about one second.
+- lang: de
+  prompt: "Kannst du mir sagen ... wie spät es ist?"
+- lang: de
+  prompt: "Ich hätte gern ... einen Tanz."
+
+# Numbers, umlauts, ß and long compound words.
+- lang: de
+  prompt: "Wie viel ist dreizehn plus neunzehn?"
+- lang: de
+  prompt: "Wie groß bist du, und wie schwer?"
+- lang: de
+  prompt: "Funktioniert deine Gesichtserkennung auch bei schlechter Beleuchtung?"
+- lang: de
+  prompt: "Mach deine Augen türkis."
+- lang: de
+  prompt: "Mach deine Augen grün und dann gelb."
+
+# English words inside German sentences: must stay German.
+- lang: de
+  prompt: "Kannst du den Robot Dance machen?"
+- lang: de
+  prompt: "Was ist dein Lieblingssong?"
+- lang: de
+  prompt: "Kannst du ein Selfie mit uns machen?"

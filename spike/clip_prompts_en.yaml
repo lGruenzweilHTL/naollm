@@ -1,4 +1,4 @@
-# Free-talk sentences for spike/record_clips.py, on top of the English eval
+# English free-talk sentences for spike/record_clips.py, on top of the English eval
 # cases in tests/eval/tool_calls.yaml. No expect: stt_bench.py scores these on
 # word error rate only. They cover what eval prompts do not: long sentences,
 # numbers, names, robot words and quick questions.
@@ -16,8 +16,6 @@
   prompt: "Do you like being a robot at our school?"
 - lang: en
   prompt: "What is twelve times seven?"
-- lang: en
-  prompt: "My name is Alex and I am in the robotics club."
 - lang: en
   prompt: "How many motors and sensors do you have in your body?"
 - lang: en
